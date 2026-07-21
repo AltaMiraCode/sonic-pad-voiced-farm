@@ -152,6 +152,8 @@ ssh sonic@<pad-ip>        # default password: sonic
 ```
 → Opens a remote shell on the pad. Replace `<pad-ip>` with the address from the touchscreen. From here on you're typing *on the pad*.
 
+> **✓ Expect:** the first connection asks `Are you sure you want to continue connecting?` → type `yes`. Then `sonic@<pad-ip>'s password:` — type `sonic` (it won't echo — no dots, that's normal). Success = the prompt changes to something like `sonic@sonicpad:~$`. That changed prompt is how you know the terminal is now the pad.
+
 **🖥️ Pad · SSH / bash**
 ```bash
 passwd                                 # change the default password now
@@ -160,6 +162,8 @@ sudo apt install -y git evtest         # git (for clones) + evtest (to check the
 sudo timedatectl set-timezone America/New_York   # so timestamps & the daily backup cron are local
 ```
 → Secures the login, updates Debian, installs the two tools the guide needs, and sets your timezone.
+
+> **✓ Expect:** `passwd` prompts for the new password twice (no echo) and ends `passwd: password updated successfully`. `apt update` lists repositories and ends `Reading package lists... Done`. `apt upgrade` may pause at `Do you want to continue? [Y/n]` — press Enter; a large upgrade can take several minutes. The `install` and `timezone` lines print little or nothing and drop you back at the `$` prompt — **returning to the prompt with no error is success.**
 
 > **Now set a DHCP reservation in your router — and why it matters.** From any browser, log into your router and give the pad a **DHCP reservation** (a fixed lease tied to the pad's MAC address). **Why:** without it, the router can hand the pad a *different* IP after any reboot or lease expiry — and everything that points at the pad by address breaks at once: your Fluidd bookmarks, the printer entries you add in section 10 (stored as `ip:port`), the webcam stream URLs (section 14), and KlipperScreen. A reservation nails the address down so all of those keep working. (A static IP set on the pad itself is the alternative, but a router reservation is easier to manage.)
 
@@ -185,6 +189,8 @@ cd ~ && git clone https://github.com/dw-0/kiauh.git
 ```
 → Downloads KIAUH and launches its text menu. Everything below is done by picking numbered menu options.
 
+> **✓ Expect:** a boxed ASCII text menu titled **KIAUH ~ Klipper Installation And Update Helper** with a numbered list (Install, Update, Remove, …) and a `Perform action:` prompt. You navigate by typing a number and pressing Enter. If instead you get `command not found`, you're not in `~/kiauh` — `cd ~` and re-run `./kiauh/kiauh.sh`.
+
 1. **[Remove]** → remove the preinstalled **Klipper**, then **Moonraker**. Leave KlipperScreen.
 2. **[Install] → Klipper** → **4 instances**. If custom names are offered, enter them in **UPPERCASE** — `OMEGA UNICORN DIMETER TRIDENT` (→ folders `printer_OMEGA_data` and services `klipper-OMEGA`/`moonraker-OMEGA`). Every command later in this guide loops over the uppercase names, so matching them here is what makes those loops and `systemctl` calls work. If only numbers are offered, use `1`–`4` and substitute your numbers wherever a name appears below.
 3. **[Install] → Moonraker** → auto-creates four on ports **7125–7128**.
@@ -208,6 +214,8 @@ Label the pad's ports and cables. Then, on the pad, plug in **one printer at a t
 ls /dev/serial/by-path/
 ```
 → Lists USB-serial devices by physical port. With one printer plugged in you'll see one entry like `platform-....ehci1-controller-usb-0:1.3:1.0-port0` — that string is this printer's stable address. Record it, plug in the next, repeat.
+
+> **✓ Expect:** with **one** printer powered and plugged in, exactly **one** line. If you get `No such file or directory` or an empty result, the printer isn't powered, the cable is charge-only (no data lines), or it's not enumerated yet — wait a few seconds and re-run. Two entries means a second printer is still plugged in; unplug it so you can be sure which path is which.
 
 ```mermaid
 graph TD
@@ -247,6 +255,8 @@ cp out/klipper.bin ~/ZNP_ROBIN_NANO.bin
 ```
 → Compiles the firmware and copies it under the exact filename the Neptune bootloader looks for.
 
+> **✓ Expect:** `make` scrolls a page of `Compiling ...` lines for a minute or two and finishes with a summary ending roughly `Creating hex file out/klipper.bin` and no error. The `cp` prints nothing. Confirm the file exists with `ls -l ~/ZNP_ROBIN_NANO.bin` — you should see a ~30–60 KB file. If `make` stops with a red error, revisit `menuconfig` (usually a wrong MCU model or bootloader size).
+
 ### Step B — copy the firmware to your PC
 
 Open a **second** PowerShell window (leave the SSH one open) and pull the file down:
@@ -256,6 +266,8 @@ Open a **second** PowerShell window (leave the SSH one open) and pull the file d
 scp sonic@<pad-ip>:~/ZNP_ROBIN_NANO.bin .
 ```
 → Copies the firmware from the pad to your PC's current folder, so you can put it on the SD card.
+
+> **✓ Expect:** a one-line transfer showing `ZNP_ROBIN_NANO.bin  100%  <size>  …` and then your PowerShell prompt. If it asks for a password, enter the pad's. The file now sits in whatever folder that PowerShell window is in (`pwd` shows it) — that's what you'll copy to the SD card.
 
 ### Step C — SD-flash each board (one at a time)
 
@@ -309,7 +321,53 @@ First, get the companion kit onto the pad:
 ```bash
 git clone https://github.com/AltaMiraCode/sonic-pad-voiced-farm.git ~/farm-kit
 ```
-→ Clones the kit to `~/farm-kit` (skip if you already did it in section 2). Remember to find-and-replace the printer names/ports if yours differ.
+→ Clones the kit to `~/farm-kit` (skip if you already did it in section 2). **If you're keeping the author's names (`Omega`/`Unicorn`/`Dimeter`/`Trident`), skip the next box entirely.** If you want your own names, do the rename now — before anything gets deployed.
+
+#### Make the kit yours — rename the printers across the whole kit
+
+The names appear in the scripts and configs in **three cases** — Capitalized (`Omega`, spoken/display names), UPPERCASE (`OMEGA`, folder names / service names / the port maps), and lowercase (`omega`, a couple of filenames like `cry_omega.wav` and one macro check) — so a rename has to catch all three. Rather than hand-edit every file, **edit only the map on the first line** below (kit's name on the left, yours on the right) and run it once on the pad:
+
+**🖥️ Pad · SSH / bash**
+```bash
+cd ~/farm-kit
+# Left = the kit's name, right = yours. Keep the FIRST entry as your "lead" printer:
+# it inherits Omega's announcer role — the robot voice, the countdowns, the group
+# shout-outs ("GO GO POWER PRINTERS"), and the drag-race "start your engines."
+declare -A REN=( [Omega]=Gandalf [Unicorn]=Frodo [Dimeter]=Bilbo [Trident]=Samwise )
+
+for f in scripts/* config/*; do
+  [ -f "$f" ] || continue
+  for old in "${!REN[@]}"; do
+    new=${REN[$old]}
+    sed -i "s/${old}/${new}/g; s/${old^^}/${new^^}/g; s/${old,,}/${new,,}/g" "$f"
+  done
+done
+grep -rIl -E 'Omega|Unicorn|Dimeter|Trident' scripts config \
+  && echo "^ still mention an author name — open these and fix by hand" \
+  || echo "clean — no author names remain in the kit"
+```
+→ Replaces every occurrence of each author name — in all three cases, including the ones tucked inside `printer_OMEGA_data` and `cry_omega.wav` (a plain replace, not a word-boundary one, so those underscore-embedded spots are caught) — across every script and config, then greps to prove none are left. `${old^^}`/`${old,,}` are bash's upper/lower-case expansions. **Use plain letters, no spaces**, for your names so they're valid in folder and service names.
+
+> **✓ Expect:** the `sed` loop prints **nothing** (it edits in place, silently) and drops you back at the prompt. The only output is the last line — on success exactly:
+> ```
+> clean — no author names remain in the kit
+> ```
+> If instead you see a short list of file paths followed by `^ still mention an author name — open these and fix by hand`, one of your new names collided or a name appeared in an unexpected spot — open those files and fix the leftover by hand, then re-run the `grep` line alone to re-check.
+
+> **⚠️ Two things this does *not* touch — you handle them yourself.**
+> 1. **The guide's own command loops.** Several blocks below (and in sections 15) literally say `for P in OMEGA UNICORN DIMETER TRIDENT`. Those iterate over your *instance folder* names — so wherever you see that line, type **your** uppercase names instead. Likewise set the `NAME` map in the machine.cfg step just below to your names (e.g. `[GANDALF]=Gandalf`).
+> 2. **The instance names you chose in section 6.** This rename edits the *kit files*; it assumes the four Klipper instances you created in KIAUH already use your UPPERCASE names (`printer_GANDALF_data`, `moonraker-GANDALF`, …). If you named them `OMEGA…` in section 6 but want `GANDALF…`, redo section 6 with your names first — folder/service names can't be sed'd after the fact.
+
+> **Ports usually stay as they are.** `7128`/`7125`/`7126`/`7127` are just the *local* Moonraker ports on the pad — nothing off the pad sees them, so there's no reason to change them unless they clash with something else you run there. If you truly must, add a second map and loop *after* the rename above:
+>
+> **🖥️ Pad · SSH / bash**
+> ```bash
+> declare -A PREN=( [7128]=7228 [7125]=7225 [7126]=7226 [7127]=7227 )   # only if you need different ports
+> for f in scripts/* config/*; do [ -f "$f" ] || continue
+>   for p in "${!PREN[@]}"; do sed -i "s/${p}/${PREN[$p]}/g" "$f"; done
+> done
+> ```
+> → Then make KIAUH create the instances on those same ports, and update your Fluidd "Add printer" and `KlipperScreen.conf` entries to match.
 
 > **✅ Using the kit, you skip all the authoring.** Everything from here — the macros, the four show scripts, the five sound themes (the chime WAVs), the daemon, and every tool — **ships ready-made in the repo**. You don't write or record any of it; you clone, adapt the names, and deploy. The one thing you still generate on your own pad is the **voice bank** (section 12) — the spoken WAVs are rendered per printer in your chosen voices, which is a single command, not hand-work. Wherever a step below would be "create X," using the kit turns it into "copy X into place."
 
@@ -368,6 +426,8 @@ done
 sudo systemctl restart moonraker-OMEGA moonraker-UNICORN moonraker-DIMETER moonraker-TRIDENT
 ```
 → Turns on Moonraker's object pre-processing for each instance (so "cancel this one object" and adaptive meshing work), then restarts the four Moonrakers. The `grep -q … ||` guard makes it safe to re-run.
+
+> **✓ Expect:** the loop and `systemctl restart` print **nothing** and return to the prompt — that's success. Each printer's Fluidd tab will briefly show "reconnecting," then come back. (The two earlier `cp` loops for `macros.cfg` and `machine.cfg` are silent too — no output means they worked.)
 
 > **🔍 Aside — the slicer interface (done on your PC's slicer).** Point every slicer's start G-code at `PRINT_START BED={...} EXTRUDER={...}` (and `PRINT_END`). Passing the temps tells the slicer *not* to inject its own heat-up — `PRINT_START` owns the sequence, so all printers behave identically. [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) speaks Klipper natively; Cura works too with object processing on.
 
@@ -469,7 +529,9 @@ sudo apt install -y python3-websockets
 sudo cp config/sonicpad-chimes.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now sonicpad-chimes
 ```
-→ Installs the player, voice script, and daemon; drops the five themes in and points `~/chimes` at "Default"; installs the ALSA `dmix` config; installs the daemon's Python dependency; plays a test chime (loud); then enables the daemon on boot and now. `systemctl status sonicpad-chimes` should show it connected.
+→ Installs the player, voice script, and daemon; drops the five themes in and points `~/chimes` at "Default"; installs the ALSA `dmix` config; installs the daemon's Python dependency; plays a test chime (loud); then enables the daemon on boot and now.
+
+> **✓ Expect:** the big payoff is audible — `~/play_chime.sh ~/chimes/done.wav` should play the four-note "done" chime **out loud** (this is the moment you confirm the speaker fix works). `apt install` may print "already the newest version." The `enable --now` line prints `Created symlink …`. Verify the daemon with `systemctl status sonicpad-chimes` — you want a green `Active: active (running)`, and the log tail should show it connecting to each printer's port. Press `q` to exit the status view. **No chime?** Re-check the mixer wrapper above and that `~/.volume` (if present) isn't `0`.
 
 **Swappable sound themes:** five ship — **Default · Doom · Arcade · Zen · Rangers**.
 
@@ -478,6 +540,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now sonicpad-chimes
 ~/set-sound-theme.sh Doom      # run with no argument to list themes
 ```
 → Repoints the `~/chimes` symlink at another theme folder; the daemon re-reads it on the next play, so it's instant. For tappable buttons, install `gcode_shell_command` (KIAUH → Advanced) and use `SOUND_THEME` from `macros.cfg`.
+
+> **✓ Expect:** with a theme name it prints a short confirmation like `sound theme -> Doom` and plays a sample in the new theme. Run with **no** argument and it lists the available theme folders (Default, Doom, Arcade, Zen, Rangers) and marks the active one. An "unknown theme" message means a typo — names are case-sensitive.
 
 > **⚠️ Pitfall — install the shell extension first.** Any macro referencing `gcode_shell_command` makes Klipper refuse to start if the extension isn't installed.
 
@@ -489,6 +553,8 @@ cd ~/farm-kit && cp scripts/render_voicebank.sh scripts/setup_voicebank.sh ~
 ~/setup_voicebank.sh
 ```
 → Downloads Piper and the printer voices, renders every fixed line into `~/voicebank/`, and normalizes them as loud as the chimes. Takes a few minutes.
+
+> **✓ Expect:** it prints download progress for Piper and each voice model, then a stream of `rendering: <name> …` lines, and finishes with a count like `voicebank: 128 clips rendered`. When it's done, `ls ~/voicebank/ | wc -l` should report dozens of `.wav` files, and `~/say.sh "test"` should speak aloud. First run is the slow one (it downloads models); re-runs are quick.
 
 ```mermaid
 flowchart TD
@@ -561,6 +627,15 @@ Optional, and the streaming backend is **already preinstalled**: the SonicPad-De
    ```
    → Adds the one shared webcam stream to each of the four Moonraker instances, so it shows in every printer's Fluidd page. Set `PAD_IP` to the pad's address (the stream URL must be the pad's LAN IP so other devices can load it — another reason the DHCP reservation matters). Idempotent: re-run if the address changes.
 
+> **✓ Expect:** one line per printer, each ending `registered`, e.g.:
+> ```
+> Omega (7128): registered
+> Unicorn (7125): registered
+> Dimeter (7126): registered
+> Trident (7127): registered
+> ```
+> A `FAIL ->` line means that instance's Moonraker didn't answer — check it's running (`systemctl status moonraker-<NAME>`) and re-run. `ls /dev/video*` just above should have printed `/dev/video0` (a second camera would add `/dev/video1`); nothing there means the webcam isn't detected.
+
 > **🔍 Aside — the camera speaks in chimes (optional).** The kit's `cam-watch.sh`/`cam-snapshot.sh` tie camera actions (stream online/offline, snapshot, recording start/stop) to the chime system, so the farm acknowledges camera events with sounds — no separate voice persona, just feedback. To enable them, copy them into place and install the watcher service:
 >
 > **🖥️ Pad · SSH / bash**
@@ -590,6 +665,8 @@ chmod +x ~/shape.sh ~/shape-run.sh ~/setup-shaper.sh
 ~/setup-shaper.sh          # distributes shaper.cfg + wires adxl.cfg into all four printers
 ```
 → Installs the shaper tooling and wires each printer's config to share the one sensor. `adxl-shape.cfg` is the master accelerometer definition; `setup-shaper.sh` copies `shaper.cfg` into every instance and creates each printer's `adxl.cfg` placeholder (the include the `RUN_INPUT_SHAPER` handshake toggles when it claims the sensor). It also checks the two prerequisites — the SPI device and the linux-host-MCU socket — and tells you if the SPI overlay still needs enabling.
+
+> **✓ Expect:** a short per-printer report (each instance "wired"/updated) and a prerequisites line. If it finds the SPI device and host-MCU socket, it says so and you're ready. If the SPI overlay isn't enabled yet, it prints a clear warning **with the exact fix** (enable SPI and reboot) — do that, then re-run. `chmod` prints nothing.
 
 Then, per printer:
 
@@ -632,6 +709,8 @@ done
 ```
 → Inserts `runout_gcode`/`insert_gcode` under each printer's existing `pause_on_runout`, then restarts the fleet. After this a runout auto-pauses, alarms, and walks you through the reload. The feed waits ~20 min for each press and bails gracefully if you resume manually from Fluidd. (The macros know which printer they're on from `machine.cfg`, so no per-printer name argument is needed.)
 
+> **✓ Expect:** the `for` loop is **silent** (the `grep -q … ||` guard only edits files that need it — re-running prints nothing because the lines are already present). `~/restart-all.sh` then prints a per-printer restart line and you'll **hear the roll-call** as the fleet comes back. Confirm it took with `grep -n runout_gcode ~/printer_OMEGA_data/config/printer.cfg` — you should see the two new lines under `pause_on_runout`.
+
 ---
 
 ## 16. Automated backups — your safety net
@@ -644,6 +723,8 @@ cd ~ && git clone https://github.com/Staubgeborener/klipper-backup.git
 ./klipper-backup/install.sh
 ```
 → Installs klipper-backup and walks you through connecting a free GitHub account + token, then pushes your config folders to your private repo on a schedule / on demand.
+
+> **✓ Expect:** `install.sh` clones dependencies and then opens its own setup prompts asking for your GitHub username, the repo name, and a token. When you first run a backup it prints git output ending in a push summary (`… main -> main`) and your files appear in the private repo. A `403`/`authentication failed` means the token is wrong or lacks `repo` scope — regenerate it and re-enter.
 
 > **🔍 Aside — back up the personality, not just the printers.** In `.env`, extend `backupPaths` beyond the config folders to include your home scripts, `voicebank/`, and the sound themes — so a rebuild restores the *whole* system. A daily cron (`0 4 * * *`) keeps it current. Keep the GitHub **token** out of screenshots/logs; if it leaks, revoke it, generate a new one, and update `.env`.
 
@@ -693,6 +774,8 @@ The kit is already wired for eight — the extra names, ports, and voices are ch
    sudo systemctl enable --now klipper-${NEW} moonraker-${NEW}
    ```
    → Clones a working instance, strips the donor's tuning (you'll re-tune), renames it everywhere, moves it to the new port, and starts its two services. Set the `[mcu] serial:` to the new printer's by-path by hand — that's the one value that's physical, not copyable. (Adjust `DONOR`/`PORT`/paths to your setup.)
+
+   > **✓ Expect:** the `cp`/`sed` lines are silent. `daemon-reload` prints nothing; `enable --now` prints two `Created symlink …` lines. Confirm both services with `systemctl status klipper-TESSERACT moonraker-TESSERACT` — you want `active (running)` on each. Klipper will report "mcu not found" until you set the `[mcu] serial:` to the real by-path — that's expected until you do the one manual edit.
 3. **Flash the board** (if new stock) with the section-8 process.
 4. **Turn on the announcements & voice:**
 
