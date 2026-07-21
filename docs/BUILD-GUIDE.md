@@ -1,10 +1,19 @@
 # Turn a dead-end Creality Sonic Pad into a voiced, self-healing print farm
 
-A complete roadmap: wipe the abandoned firmware, run four (or eight) Neptune 3 Pros from one modern portal, tune them properly, back them up automatically — and give the whole rack a voice, lights, and a sense of humor. Every step, every command, every gotcha we hit.
+A complete roadmap: wipe the abandoned firmware, run four (or eight) Neptune 3 Pros from one modern portal, tune them properly, back them up automatically — and give the whole rack a voice, lights, and a sense of humor. Every step, every command, and exactly where to run it.
 
 > Built and battle-tested on a four-printer Elegoo Neptune 3 Pro farm (Omega · Unicorn · Dimeter · Trident), prewired for eight (Tesseract · Pentagram · Sestina · Hydra).
 
 **Two phases:** the upgrade (~3–4 hours, sections 3–14) and tuning (~1 hr/printer, section 15, spread over days). You don't need Phase 2 to start printing.
+
+### 📖 How to read this guide — two places you'll type commands
+
+Every command block below is labeled with **where it runs**. Getting this right is the single most common source of confusion:
+
+- **💻 PC · PowerShell** — a PowerShell window on your Windows computer (flashing, file transfers, and *connecting* to the pad).
+- **🖥️ Pad · SSH / bash** — the Linux shell *on the pad*. You get there by running `ssh sonic@<pad-ip>` from PowerShell; after that, your terminal **is** the pad until you type `exit`.
+
+When a step moves a file between the two, it's called out explicitly.
 
 ## Contents
 
@@ -43,8 +52,7 @@ Creality abandoned the Sonic Pad in early 2024, leaving it on a locked, heavily-
 | 🗣️ **A voice** | Spoken status, themed chimes for every event (including emergency stop), runout guidance; each printer says its own name. |
 | 🎪 **Four one-button shows** | Rangers roll-call, a Space Invaders march, a Newton's cradle, and a Z-axis drag race — motion + LEDs + existing chimes. |
 
-> **🔍 Aside — why replace the OS at all**
-> On the stock fork, the moment your printer boards' firmware and the pad's Klipper drift a version apart, they refuse to talk (`mcu protocol mismatch`) — and you can't fix a locked fork. Mainline Klipper ends that permanently: the pad **compiles the board firmware itself**, so the two always match, and every component is a supported, updatable package.
+> **🔍 Aside — why replace the OS at all.** On the stock fork, the moment your printer boards' firmware and the pad's Klipper drift a version apart, they refuse to talk (`mcu protocol mismatch`) — and you can't fix a locked fork. Mainline Klipper ends that permanently: the pad **compiles the board firmware itself**, so the two always match.
 
 ---
 
@@ -53,45 +61,47 @@ Creality abandoned the Sonic Pad in early 2024, leaving it on a locked, heavily-
 | Item | Notes |
 |---|---|
 | **USB-A ↔ USB-A cable** (male-to-male) | For flashing the pad. **Not in the box** — the #1 reason upgrades stall. Check tonight. |
-| A Windows PC | PhoenixSuit is Windows-only; you'll need to toggle a couple of security settings (section 4). |
+| A Windows PC | PhoenixSuit is Windows-only; you'll toggle a couple of security settings (section 4). |
 | MicroSD card, **8–16 GB**, + reader | For the printer boards. Big/cheap cards are the top cause of failed flashes — use a small, name-brand one. |
 | SIM-eject tool / paperclip | To hold the pad's recessed button for flash mode. |
 | Masking tape / labels | To label the pad's USB ports and each printer's cable — this *matters* (section 7). |
 
-**Downloads (~1.5 GB):** the three-part [SonicPad-Debian image](https://github.com/Jpe230/SonicPad-Debian/releases) (`.zip` + `.z01` + `.z02` in one folder — extract the `.zip` → `debian_r818_sonic_lcd_uart0.img`); [PhoenixSuit](https://github.com/Jpe230/SonicPad-Debian/tree/main/tools) (with its `Drivers/` folder); and, for insurance, the [stock Creality firmware](https://www.creality.com/pages/download-creality-sonic-pad) for rollback.
+**Downloads (~1.5 GB, onto your PC):** the three-part [SonicPad-Debian image](https://github.com/Jpe230/SonicPad-Debian/releases) (`.zip` + `.z01` + `.z02` in one folder — extract the `.zip` → `debian_r818_sonic_lcd_uart0.img`); [PhoenixSuit](https://github.com/Jpe230/SonicPad-Debian/tree/main/tools) (with its `Drivers/` folder); and, for insurance, the [stock Creality firmware](https://www.creality.com/pages/download-creality-sonic-pad) for rollback.
 
-### 📦 Companion files (the voice/lights/shows kit)
+**The companion kit** (the voice/lights/shows layer) is cloned later, **on the pad**, in section 11:
 
-The personality layer — the chime daemon, the voice-bank renderer, the shared `macros.cfg`, the five sound themes, and the four show scripts — lives in the project's repo. Clone it onto the pad when you reach section 11:
-
+**🖥️ Pad · SSH / bash**
 ```bash
 git clone https://github.com/AltaMiraCode/sonic-pad-voiced-farm.git ~/farm-kit
 ```
 
-It contains `scripts/` (play_chime.sh, say.sh, the daemon, render_voicebank.sh, the four shows…), `config/` (macros.cfg, the systemd unit, asound.conf), `sounds/` (Default · Doom · Arcade · Zen · Rangers themes), and `VOICES.md` (the voice recipe). No private configs or tokens are in it — those stay on your pad.
+It contains `scripts/`, `config/` (macros.cfg, systemd unit, asound.conf), `sounds/` (Default · Doom · Arcade · Zen · Rangers), and `docs/`. No private configs or tokens — those stay on your pad.
 
-> **✅ This is normal — reversible, printers unchanged**
-> This voids the pad's warranty and is a community project — but full rollback to stock is possible with the same tool (section 18). Your printers' stock LCD screens stay disconnected exactly as they are now; nothing about the printers changes.
+> **✅ This is normal — reversible, printers unchanged.** This voids the pad's warranty and is a community project — but full rollback to stock is possible (section 18). Your printers' stock LCD screens stay disconnected exactly as now; nothing about the printers changes.
 
 ---
 
 ## 3. Prep & back up
 
-> **⚠️ Pitfall — your tuning lives on the pad and gets erased**
-> z-offsets, PID values, and meshes are stored on the pad and wiped by the reflash. For **each** printer, in Fluidd → Configuration, download `printer.cfg` and everything it `[include]`s. Confirm the `SAVE_CONFIG` block at the bottom came along — that's where the tuning hides. Also jot down any e-steps/`rotation_distance`, pressure advance, and shaper values.
+> **⚠️ Pitfall — your tuning lives on the pad and gets erased.** z-offsets, PID values, and meshes are stored on the pad and wiped by the reflash. In your **current** Fluidd (before you touch anything), for **each** printer download `printer.cfg` and everything it `[include]`s. Confirm the `SAVE_CONFIG` block at the bottom came along. Also jot down any e-steps/`rotation_distance`, pressure advance, and shaper values.
 
-Note the pad's current IP (Fluidd URL). After the reflash it gets a new IP — plan a **DHCP reservation** in your router afterward so it never changes again.
+Note the pad's current IP (Fluidd URL). After the reflash it gets a new IP — plan a **DHCP reservation** in your router afterward.
+
+> **◆ WAYPOINT — Phase 1 begins.**
+> **Done:** you have the cable, SD card, downloads on your PC, and a safe copy of every printer's tuned config.
+> **Next (sections 4–8):** replace the pad's OS and rebuild the software from a clean base — flash Debian, install a four-printer Klipper stack, then compile and flash matching board firmware.
+> **Why this order:** the flash wipes everything, so backups come first; the four-instance stack must exist before printers can be wired to it; and board firmware is compiled *on* the pad so it always matches the Klipper you just installed.
 
 ---
 
 ## 4. Flash the pad to Debian
 
-The *flashing* is easy; the friction is entirely Windows refusing the 2013-era Allwinner driver. Do the driver prep **first**.
+The flashing is easy; the friction is entirely Windows refusing the 2013-era driver — so do the driver prep **first**. Everything in this section happens at your PC.
 
 ### Step A — prep Windows so it accepts the flash driver
 
-1. **Turn off Memory Integrity.** Windows Security → *Device security* → *Core isolation details* → toggle **Memory integrity OFF** → **reboot**. This is the setting that most often silently blocks the driver.
-2. **Have driver-signature enforcement ready to disable** (per-boot): Settings → *System* → *Recovery* → *Advanced startup* → **Restart now** → Troubleshoot → Advanced options → **Startup Settings** → Restart → press **7** (Disable driver signature enforcement). Lasts one boot — flash in that session.
+1. **Turn off Memory Integrity.** Windows Security → *Device security* → *Core isolation details* → toggle **Memory integrity OFF** → **reboot**. The setting that most often silently blocks the driver.
+2. **Know how to disable driver-signature enforcement** (per-boot, only if A.1 isn't enough): Settings → *System* → *Recovery* → *Advanced startup* → **Restart now** → Troubleshoot → Advanced options → **Startup Settings** → Restart → press **7**. Lasts one boot.
 3. **Run `PhoenixSuit.exe` as Administrator**, image already loaded, before putting the pad into flash mode.
 
 ### Step B — flash
@@ -99,46 +109,53 @@ The *flashing* is easy; the friction is entirely Windows refusing the 2013-era A
 1. Pad **off**; unplug all printers from it.
 2. USB-A↔A cable from your PC to the pad's **CAM** port.
 3. PhoenixSuit → **Firmware** tab → **Image** → select the `.img`.
-4. Hold the outermost recessed button with a paperclip and, while holding, power the pad on. Screen stays black, side light on — that's flash (FEL) mode.
+4. Hold the outermost recessed button with a paperclip and, while holding, power the pad on. Screen black, side light on — that's flash (FEL) mode.
 5. If Windows shows an unknown device: Device Manager → right-click → **Update driver** → *Browse my computer* → point at `Drivers\AW_Driver` inside PhoenixSuit (**not** `ADB_Driver`).
 6. Confirm the flash (full flash if asked) and **don't touch anything for 10+ minutes**. It reboots into Debian when done. ([Upstream flashing docs](https://github.com/Jpe230/SonicPad-Debian/blob/main/docs/flashing.md).)
 
-> **✅ This is normal — the black screen**
-> During flashing the screen is black with only the side light on. Correct — trust the clock.
+> **✅ This is normal — the black screen.** During flashing the screen is black with only the side light on. Trust the clock.
 
-> **⚠️ Pitfall — "unknown device VID_1f3a" with a warning (Code 52)**
-> The pad **is** in flash mode (that's Allwinner's FEL device ID) but Windows is blocking the driver. In order: (1) Code 52 = signature block; (2) Memory Integrity OFF + reboot; (3) boot with driver-signature enforcement disabled; (4) after any reboot, re-enter FEL with PhoenixSuit already running as Admin and the image loaded; (5) if the driver loads clean but PhoenixSuit is still blind, use a **USB 2.0** port — FEL is flaky on USB 3.
+> **⚠️ Pitfall — "unknown device VID_1f3a" with a warning (Code 52).** The pad **is** in flash mode but Windows is blocking the driver. In order: (1) Code 52 = signature block; (2) Memory Integrity OFF + reboot; (3) boot with signature enforcement disabled; (4) re-enter FEL with PhoenixSuit already running as Admin; (5) if the driver loads but PhoenixSuit is blind, use a **USB 2.0** port — FEL is flaky on USB 3.
 
 ---
 
 ## 5. First boot & taming the power button
 
-On the touchscreen, set up WiFi and note the IP. Then from your PC:
+On the pad's touchscreen, set up **WiFi** and note the IP. Now connect from your PC — this is the moment your terminal crosses from the PC to the pad:
 
-```bash
+**💻 PC · PowerShell**
+```powershell
 ssh sonic@<pad-ip>        # default password: sonic
-passwd                    # change it now
+```
+
+You're now at a shell **on the pad**. Everything below runs there:
+
+**🖥️ Pad · SSH / bash**
+```bash
+passwd                                 # change the default password now
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y git evtest
 sudo timedatectl set-timezone America/New_York
 ```
 
-Set the router's DHCP reservation now.
+Then set the DHCP reservation in your router (from any browser) so the pad keeps this IP.
 
-> **🔍 Aside — why the power button needs taming**
-> Debian runs a read/write filesystem; cutting power without a clean shutdown can corrupt it. Make a short press = graceful shutdown:
+> **🔍 Aside — why the power button needs taming.** Debian runs a read/write filesystem; cutting power without a clean shutdown can corrupt it. Make a short press = graceful shutdown:
+>
+> **🖥️ Pad · SSH / bash**
 > ```bash
 > sudo nano /etc/systemd/logind.conf   # uncomment/set: HandlePowerKey=poweroff
 > sudo systemctl restart systemd-logind
 > ```
-> A multi-second *hold* is a hardware force-off that can't be disabled — but that takes deliberate pinning, not a graze. Shut down via Fluidd → Power → Host shutdown, then cut power once the screen's dark.
+> A multi-second *hold* is a hardware force-off that can't be disabled — but that takes deliberate pinning. Shut down via Fluidd → Power → Host shutdown, then cut power once the screen's dark.
 
 ---
 
 ## 6. Install the four-printer stack with KIAUH
 
-The image ships one preinstalled Klipper/Moonraker. Let [KIAUH](https://github.com/dw-0/kiauh) rebuild it as four:
+The image ships one preinstalled Klipper/Moonraker. [KIAUH](https://github.com/dw-0/kiauh) (a menu-driven installer) rebuilds it as four. Run it on the pad, in your SSH session:
 
+**🖥️ Pad · SSH / bash**
 ```bash
 cd ~ && git clone https://github.com/dw-0/kiauh.git
 ./kiauh/kiauh.sh
@@ -150,10 +167,9 @@ Work the menus in order:
 2. **[Install] → Klipper** → **4 instances**. If custom names are offered, use `omega unicorn dimeter trident` (lowercase → `printer_omega_data` etc.); if only numbers, use `1`–`4`.
 3. **[Install] → Moonraker** → auto-creates four on ports **7125–7128**.
 4. **[Install] → Fluidd** → one install serves all four.
-5. **Later, when you need it (section 12):** **[Install] → Advanced → G-Code Shell Command** — lets macros run shell scripts (needed for the sound-theme buttons). Install it *before* adding any macro that references it.
+5. **Later, when you reach section 12:** **[Install] → Advanced → G-Code Shell Command** — lets macros run shell scripts (needed for the sound-theme buttons). Install it *before* adding any macro that references it.
 
-> **⚠️ Pitfall — skip the Mainsail/client-config macro package**
-> If KIAUH offers a client-config macro set, **skip it**. Your restored configs already define `PAUSE`/`RESUME`/`CANCEL_PRINT`; installing the package on top creates duplicate-macro definitions and Klipper refuses to start.
+> **⚠️ Pitfall — skip the Mainsail/client-config macro package.** If KIAUH offers a client-config macro set, **skip it**. Your restored configs already define `PAUSE`/`RESUME`/`CANCEL_PRINT`; installing it on top creates duplicate-macro definitions and Klipper refuses to start.
 
 Each instance owns a folder: `~/printer_1_data/config/` … or `~/printer_OMEGA_data/config/`.
 
@@ -161,11 +177,11 @@ Each instance owns a folder: `~/printer_1_data/config/` … or `~/printer_OMEGA_
 
 ## 7. Bind each printer to a physical port — the CH340 trap
 
-> **🔍 Aside — why the usual method fails**
-> The Neptune 3 Pro talks over a **CH340** USB-serial chip with **no unique serial number**. All four printers look byte-for-byte identical to Linux, so `/dev/serial/by-id/` can't tell them apart. Identify each printer by the **physical port** it's plugged into (`by-path`). The trade-off: a printer must stay on its labeled port — swap ports and you swap identities.
+> **🔍 Aside — why the usual method fails.** The Neptune 3 Pro talks over a **CH340** USB-serial chip with **no unique serial number**. All four printers look byte-for-byte identical to Linux, so `/dev/serial/by-id/` can't tell them apart. Identify each printer by the **physical port** it's plugged into (`by-path`). The trade-off: a printer must stay on its labeled port — swap ports and you swap identities.
 
-Label the pad's ports and cables. Plug in **one printer at a time** and record its path:
+Label the pad's ports and cables. Then, on the pad, plug in **one printer at a time** and record its path:
 
+**🖥️ Pad · SSH / bash**
 ```bash
 ls /dev/serial/by-path/     # e.g. platform-....ehci1-controller-usb-0:1.3:1.0-port0
 ```
@@ -181,69 +197,100 @@ graph TD
   OHCI -->|"port 0"| T["Trident · :7127"]
 ```
 
-Each printer's `[mcu] serial:` points at its port's `by-path` value (section 9).
+Write down each printer's path — you'll paste it into that printer's `[mcu] serial:` in section 9.
 
-> **✅ This is normal — one path looks different**
-> Three printers hang off the internal USB2 hub (`...ehci1...`) and one off the separate CAM controller (`...ohci0...`). Expected — different controller.
+> **✅ This is normal — one path looks different.** Three printers hang off the internal USB2 hub (`...ehci1...`) and one off the separate CAM controller (`...ohci0...`). Expected — different controller.
 
 ---
 
 ## 8. Compile & flash matching board firmware
 
-Compiling on the pad guarantees the board firmware matches the pad's Klipper exactly — the whole point of the upgrade.
+Compiling on the pad guarantees the board firmware matches the pad's Klipper exactly. This section moves between the pad (build) and the PC (copy to SD).
 
 ### Step A — build it on the pad
 
+**🖥️ Pad · SSH / bash**
 ```bash
 cd ~/klipper
 make clean
 make menuconfig
 ```
 
-Set (per the [official Neptune 3 Pro config](https://github.com/Klipper3d/klipper/blob/master/config/printer-elegoo-neptune3-pro-2023.cfg)): Architecture **STM32**, model **STM32F401**, **32KiB bootloader**, communication **Serial (USART1 PA10/PA9)**. Then:
+Set (per the [official Neptune 3 Pro config](https://github.com/Klipper3d/klipper/blob/master/config/printer-elegoo-neptune3-pro-2023.cfg)): Architecture **STM32**, model **STM32F401**, **32KiB bootloader**, communication **Serial (USART1 PA10/PA9)**. Quit & save, then:
 
+**🖥️ Pad · SSH / bash**
 ```bash
 make
 cp out/klipper.bin ~/ZNP_ROBIN_NANO.bin
-# copy to your PC, e.g.: scp sonic@<pad-ip>:~/ZNP_ROBIN_NANO.bin .
 ```
 
-### Step B — SD-flash each board (one at a time)
+### Step B — copy the firmware to your PC
+
+Open a **second** PowerShell window (leave the SSH one open) and pull the file down:
+
+**💻 PC · PowerShell**
+```powershell
+scp sonic@<pad-ip>:~/ZNP_ROBIN_NANO.bin .
+```
+
+### Step C — SD-flash each board (one at a time)
 
 Format the microSD **FAT32**, put **only** `ZNP_ROBIN_NANO.bin` on it. For each printer: printer OFF → card in → power on, wait a full **2 minutes** (no feedback) → power off → move card to the next.
 
-> **⚠️ Pitfall — the `.CUR` rename & the SD card**
-> After a successful flash the bootloader renames the file to `ZNP_ROBIN_NANO.CUR`, so the *first* printer consumes it. **Re-copy a fresh `.bin` before every board.** If a board won't take the flash: reformat FAT32, try a smaller/name-brand card — an 8 GB card rescues most failures.
+> **⚠️ Pitfall — the `.CUR` rename & the SD card.** After a successful flash the bootloader renames the file to `ZNP_ROBIN_NANO.CUR`, so the *first* printer consumes it. **Re-copy a fresh `.bin` before every board.** If a board won't take the flash: reformat FAT32, try a smaller/name-brand card — an 8 GB card rescues most failures.
+
+> **◆ WAYPOINT — hardware done, software next.**
+> **Done:** Debian is on the pad, four Klipper/Moonraker instances exist, each printer is bound to a known USB port, and every board runs firmware that matches the pad.
+> **Next (sections 9–10):** hand each instance its printer config and bring the fleet up in one Fluidd portal.
+> **Why now:** the instances are empty shells until they get a `printer.cfg` pointing at the right board; once they connect, Fluidd ties them into one dashboard.
 
 ---
 
 ## 9. Restore configs — three edits that matter
 
-Upload each backed-up `printer.cfg` to its instance folder, then make exactly these changes (everything else, including `SAVE_CONFIG`, carries over):
+Upload each backed-up `printer.cfg` to its instance folder — easiest via Fluidd's Configuration tab (section 10), or `scp` from your PC. Then make exactly these edits (everything else, including `SAVE_CONFIG`, carries over):
 
 1. **`[mcu] serial`** → that printer's `by-path` value (section 7); add `restart_method: command`.
 2. **`[virtual_sdcard] path`** → the instance's own gcodes folder, e.g. `~/printer_1_data/gcodes`.
 3. **Delete `DATA_SAVE`** from the `G29` macro — a Creality-fork-only command that doesn't exist in mainline, so any print calling `G29` errors mid-job. Reduce it to `G28` + `BED_MESH_CALIBRATE`.
 
-Restart each instance; confirm each connects. If Klipper rejects a directive, it renamed since your old fork — check [Config Changes](https://www.klipper3d.org/Config_Changes.html).
+Restart each instance (Fluidd prompts, or `sudo systemctl restart klipper-<name>` on the pad); confirm each connects. If Klipper rejects a directive, it renamed since your old fork — check [Config Changes](https://www.klipper3d.org/Config_Changes.html).
 
 ---
 
 ## 10. Fluidd & KlipperScreen
 
-Open `http://<pad-ip>/`. Click the printer name → **Add printer** → add the others by `ip:port` (`:7125`, `:7126`, `:7127`; the port-80 default is the fourth). Give each its own **theme color**. For the touchscreen, drop a 4-printer `KlipperScreen.conf` in place and `sudo systemctl restart KlipperScreen`. ([Fluidd docs](https://docs.fluidd.xyz) · [KlipperScreen theming](https://klipperscreen.readthedocs.io/en/latest/Theming/).)
+From any browser on your network, open `http://<pad-ip>/`. Click the printer name → **Add printer** → add the others by `ip:port` (`:7125`, `:7126`, `:7127`; the port-80 default is the fourth). Give each its own **theme color**. For the pad's touchscreen, drop a 4-printer `KlipperScreen.conf` in place and restart it:
 
-> **✅ This is normal — Fluidd quirks**
-> After pasting a printer URL, backspace and retype one character or the validation never fires. And the printer list sorts by its own logic — don't fight it.
+**🖥️ Pad · SSH / bash**
+```bash
+sudo systemctl restart KlipperScreen
+```
+
+([Fluidd docs](https://docs.fluidd.xyz) · [KlipperScreen theming](https://klipperscreen.readthedocs.io/en/latest/Theming/).)
+
+> **✅ This is normal — Fluidd quirks.** After pasting a printer URL, backspace and retype one character or the validation never fires. And the printer list sorts by its own logic — don't fight it.
+
+> **◆ CHECKPOINT — you have a working farm.**
+> **Milestone:** all four printers are on modern mainline Klipper, in one Fluidd portal and on the touchscreen, and can print right now. If you stopped here, you'd already have beaten the abandoned-firmware problem for good.
+> **Everything from here is optional polish** — but it's the part that makes this farm *yours*: shared macros, sound, voice, light shows, and automated backups. Then Phase 2 (tuning) for print quality.
 
 ---
 
 ## 11. One shared macro set & the LED rig
 
-Put all macro logic in a single `macros.cfg` (companion repo → `config/macros.cfg`) deployed identically to every printer. Copy it into each config folder, add `[include macros.cfg]` at the top of each `printer.cfg`, and delete the now-duplicated `PAUSE`/`RESUME`/`CANCEL_PRINT`/`M420`/`G29` blocks.
+First, get the companion kit onto the pad (you'll use it for the rest of the build):
 
-Standardize the lights fleet-wide — every printer gets:
+**🖥️ Pad · SSH / bash**
+```bash
+git clone https://github.com/AltaMiraCode/sonic-pad-voiced-farm.git ~/farm-kit
+```
 
+Put all macro logic in a single `macros.cfg` (`~/farm-kit/config/macros.cfg`) deployed identically to every printer. Copy it into each config folder, add `[include macros.cfg]` at the top of each `printer.cfg`, and delete the now-duplicated `PAUSE`/`RESUME`/`CANCEL_PRINT`/`M420`/`G29` blocks.
+
+Standardize the lights fleet-wide — every printer's `printer.cfg` gets:
+
+**🖥️ Pad · config file**
 ```ini
 [led LED_Light]
 white_pin: PB9
@@ -252,6 +299,7 @@ initial_white: 1.0
 
 with `LIGHTS_ON`/`LIGHTS_OFF`/`LIGHTS_TOGGLE` and a dimmable `_LEDW W=0..1` helper (drives the shows). Then enable object processing for exclude-object + adaptive mesh:
 
+**🖥️ Pad · SSH / bash**
 ```bash
 for P in OMEGA UNICORN DIMETER TRIDENT; do
   grep -q "^\[file_manager\]" ~/printer_${P}_data/config/moonraker.conf \
@@ -260,8 +308,7 @@ done
 sudo systemctl restart moonraker-OMEGA moonraker-UNICORN moonraker-DIMETER moonraker-TRIDENT
 ```
 
-> **🔍 Aside — the slicer interface**
-> Point every slicer's start G-code at `PRINT_START BED={...} EXTRUDER={...}` (and `PRINT_END`). Passing the temps tells the slicer *not* to inject its own heat-up — `PRINT_START` owns the sequence, so all printers behave identically. [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) speaks Klipper natively; Cura works too with object processing on.
+> **🔍 Aside — the slicer interface (done on your PC's slicer).** Point every slicer's start G-code at `PRINT_START BED={...} EXTRUDER={...}` (and `PRINT_END`). Passing the temps tells the slicer *not* to inject its own heat-up — `PRINT_START` owns the sequence, so all printers behave identically. [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) speaks Klipper natively; Cura works too with object processing on.
 
 ---
 
@@ -271,11 +318,12 @@ sudo systemctl restart moonraker-OMEGA moonraker-UNICORN moonraker-DIMETER moonr
 
 **The fix — it was never broken.** Two quirks hid a working speaker:
 
-1. The mixer's `digital volume` control is an **inverted attenuator** — **0 = full volume**, high = silence — so a "sensible" high value muted it.
-2. The BSP audio driver **resets its mixer registers every time a stream opens**, so anything set in `alsamixer` is wiped the instant you play.
+1. The mixer's `digital volume` control is an **inverted attenuator** — **0 = full volume**, high = silence.
+2. The BSP audio driver **resets its mixer registers every time a stream opens**, wiping anything set in `alsamixer` the instant you play.
 
-The cure is a wrapper (`play_chime.sh`) that **asserts the full known-good mixer state immediately before every `aplay`** — stronger than a boot-time `alsactl store`, because it re-applies on *every* play and is immune to the resets:
+The cure is a wrapper (`play_chime.sh`) that **asserts the full known-good mixer state immediately before every `aplay`** — stronger than a boot-time `alsactl store`:
 
+**🖥️ Pad · inside play_chime.sh**
 ```bash
 amixer -c 0 sset 'digital volume' 0            # ATTENUATOR: 0 = full volume
 amixer -c 0 sset 'LINEOUT' on
@@ -304,6 +352,7 @@ flowchart LR
 
 **Install the chime daemon:**
 
+**🖥️ Pad · SSH / bash**
 ```bash
 cd ~/farm-kit
 cp scripts/play_chime.sh scripts/say.sh scripts/set-sound-theme.sh scripts/sonicpad-chimes.py ~
@@ -316,12 +365,22 @@ sudo cp config/sonicpad-chimes.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now sonicpad-chimes
 ```
 
-**Swappable sound themes:** five ship — **Default · Doom · Arcade · Zen · Rangers**. Switch instantly with `~/set-sound-theme.sh Doom` (no argument = list; `~/chimes` is a symlink the daemon re-reads on every play). For tappable buttons, install `gcode_shell_command` (KIAUH → Advanced) and add the `SOUND_THEME_*` macros from `macros.cfg`.
+`systemctl status sonicpad-chimes` should show it connected. The port map lives in the `PRINTERS` dict in `sonicpad-chimes.py`.
+
+**Swappable sound themes:** five ship — **Default · Doom · Arcade · Zen · Rangers**. Switch instantly:
+
+**🖥️ Pad · SSH / bash**
+```bash
+~/set-sound-theme.sh Doom      # run with no argument to list themes
+```
+
+For tappable buttons, install `gcode_shell_command` (KIAUH → Advanced) and add the `SOUND_THEME_*` macros from `macros.cfg`.
 
 > **⚠️ Pitfall — install the shell extension first.** Any macro referencing `gcode_shell_command` makes Klipper refuse to start if the extension isn't installed.
 
 **The spoken voice bank:** speech uses [Piper](https://github.com/rhasspy/piper) to **pre-render** every fixed line into `~/voicebank/*.wav`. `setup_voicebank.sh` does it end to end:
 
+**🖥️ Pad · SSH / bash**
 ```bash
 cd ~/farm-kit && cp scripts/render_voicebank.sh scripts/setup_voicebank.sh ~
 ~/setup_voicebank.sh        # downloads Piper + voices, renders, normalizes
@@ -341,8 +400,7 @@ flowchart TD
   CH["chimes"] -. "bypass, overlap" .-> PLAY
 ```
 
-> **🔍 Aside — pre-render, then reclaim the space**
-> Because fixed lines are baked to WAVs, you can **delete the Piper models afterward** (~0.5 GB) and still keep every announcement — only dynamic lines (times, percentages) need a live synth, and one espeak voice (Omega's) covers those. Keep `VOICES.md` (in the repo) — it records each voice's model + args to re-render later. A farm-wide voice lock plays one voice at a time; chimes overlap freely.
+> **🔍 Aside — pre-render, then reclaim the space.** Because fixed lines are baked to WAVs, you can **delete the Piper models afterward** (~0.5 GB) and still keep every announcement — only dynamic lines (times, percentages) need a live synth, and one espeak voice (Omega's) covers those. Keep `docs/VOICES.md` — the recipe to re-render later. A farm-wide voice lock plays one voice at a time; chimes overlap freely.
 
 ---
 
@@ -355,24 +413,25 @@ With dimmable LEDs (`_LEDW`) and the themes in place, the fleet performs. Four o
 - **`SILLY_CRADLE` — the fleet Newton's cradle.** Printers act as beads in desk order; the glow and a Zen gong travel bead-to-bead through two round trips (the far bead swings out, hangs, returns), then the lights breathe and a Zen "done" closes it.
 - **`SILLY_RACE` — the Z-axis drag race.** Omega calls "start your engines"; a three-blip countdown; one lap up and back with each racer drawing a secret speed; then the reveal — lights return **ranked** (winner brightest → last dimmest) as the winner names itself and Omega announces the result, then an end chime rings congruent with a flashing finale, and the ranked podium stays lit.
 
-> **🔍 Aside — safe by construction, scales 1→8**
-> Every show self-daemonizes (the button returns instantly), shares one lock (only one show at a time), and **busy-guards** each printer — a machine that's printing sits the dance out. Casts are built from whatever printers are reachable and idle, so the same macros work with one printer or all eight.
+> **🔍 Aside — safe by construction, scales 1→8.** Every show self-daemonizes (the button returns instantly), shares one lock (only one show at a time), and **busy-guards** each printer — a machine that's printing sits the dance out. Casts are built from whatever printers are reachable and idle, so the same macros work with one printer or all eight.
 
 ---
 
 ## 14. Automated backups — your safety net
 
-Set up [klipper-backup](https://github.com/Staubgeborener/klipper-backup) to auto-push to a free **private** GitHub repo (separate from the public companion repo):
+Set up [klipper-backup](https://github.com/Staubgeborener/klipper-backup) to auto-push to a free **private** GitHub repo (separate from the public companion repo). Run it on the pad:
 
+**🖥️ Pad · SSH / bash**
 ```bash
 cd ~ && git clone https://github.com/Staubgeborener/klipper-backup.git
 ./klipper-backup/install.sh          # follow prompts: GitHub account + token
 ```
 
-> **🔍 Aside — back up the personality, not just the printers**
-> In `.env`, extend `backupPaths` beyond the config folders to include your home scripts, `voicebank/`, and the sound themes — so a rebuild restores the *whole* system. A daily cron (`0 4 * * *`) keeps it current. Keep the GitHub **token** out of screenshots/logs; if it leaks, revoke it, generate a new one, and update `.env`.
+> **🔍 Aside — back up the personality, not just the printers.** In `.env`, extend `backupPaths` beyond the config folders to include your home scripts, `voicebank/`, and the sound themes — so a rebuild restores the *whole* system. A daily cron (`0 4 * * *`) keeps it current. Keep the GitHub **token** out of screenshots/logs; if it leaks, revoke it, generate a new one, and update `.env`.
 
-Worst-case corruption becomes: reflash (4) → KIAUH reinstall (6) → pull from GitHub. Under an hour, nothing lost.
+> **◆ WAYPOINT — the build is complete.**
+> **Done:** a four-printer farm on mainline Klipper, one portal, a shared macro set, voice + chimes + light shows, and hands-off backups. This is the full "state" of the reference build.
+> **Next (section 15):** Phase 2 — tuning — for print *quality*. It's independent of everything above and can wait until you've printed for a day or two.
 
 ---
 
@@ -380,8 +439,7 @@ Worst-case corruption becomes: reflash (4) → KIAUH reinstall (6) → pull from
 
 Once all machines print, tune each at your own pace: a mechanical once-over; PID for hotend and bed; extruder `rotation_distance`; z-offset and a fresh mesh; then input shaping with the pad's [ADXL345](https://www.klipper3d.org/Measuring_Resonances.html); then [pressure advance](https://www.klipper3d.org/Pressure_Advance.html); then slicer-side flow/temp/retraction ([Ellis' guide](https://ellis3dp.com/Print-Tuning-Guide/)).
 
-> **🔍 Aside — input shaping, one printer at a time**
-> Resonance testing needs a "host MCU" service to read the accelerometer, and only one printer can claim it at once. Test sequentially, moving the sensor between machines. Finish by raising each frame's acceleration limits to what it supports. Keep a one-page scorecard of every printer's tuned values side by side.
+> **🔍 Aside — input shaping, one printer at a time.** Resonance testing needs a "host MCU" service to read the accelerometer, and only one printer can claim it at once. Test sequentially, moving the sensor between machines. Finish by raising each frame's acceleration limits to what it supports. Keep a one-page scorecard of every printer's tuned values side by side.
 
 ---
 
@@ -407,7 +465,7 @@ The Sonic Pad is just a cheap Linux host with a screen. The same farm runs elsew
 
 - **Software** — Fluidd → Settings → Software Updates, one click per component.
 - **Board firmware** — only when a Klipper update changes the MCU protocol (it tells you). Repeat section 8; `menuconfig` remembers your settings (~30 min). A couple times a year at most.
-- **OS** — occasional `sudo apt update && sudo apt upgrade`.
+- **OS** — occasional `sudo apt update && sudo apt upgrade` on the pad.
 - **Rule of thumb** — never update mid-print, and never the day before you need every printer running.
 
 > **✅ This is normal — "mcu protocol mismatch"** after an update just means the pad and a board drifted a version apart. Reflash that board and it's gone.
