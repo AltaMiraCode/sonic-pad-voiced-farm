@@ -72,15 +72,15 @@ Creality abandoned the Sonic Pad in early 2024, leaving it on a locked, heavily-
 
 **Downloads (~1.5 GB, onto your PC):** the three-part [SonicPad-Debian image](https://github.com/Jpe230/SonicPad-Debian/releases) (`.zip` + `.z01` + `.z02` in one folder — extract the `.zip` → `debian_r818_sonic_lcd_uart0.img`); [PhoenixSuit](https://github.com/Jpe230/SonicPad-Debian/tree/main/tools) (with its `Drivers/` folder); and, for insurance, the [stock Creality firmware](https://www.creality.com/pages/download-creality-sonic-pad) for rollback.
 
-**The companion kit** is cloned later, **on the pad**, in section 11:
+**The companion kit** lives here — you'll clone it **on the pad** once it's flashed and online (the command appears in section 11, once there's a pad to run it on):
 
-**🖥️ Pad · SSH / bash**
+**🖥️ Pad · SSH / bash** — *(runs later, in section 11 — shown here so you know what's coming)*
 ```bash
 git clone https://github.com/AltaMiraCode/sonic-pad-voiced-farm.git ~/farm-kit
 ```
 → Downloads the kit to `~/farm-kit`: `scripts/` (daemon, shows, shaping, runout, camera, fleet tools), `config/` (**macros.cfg — the whole macro set**, plus shaper/camera/service configs), `sounds/` (five themes), and `docs/`. No private configs or tokens are in it.
 
-> **⚠️ Pitfall — the kit uses the author's printer names & ports.** Because you're cloning real working files, they carry the author's names (`Omega`/`Unicorn`/`Dimeter`/`Trident`) and ports (`7128`/`7125`/`7126`/`7127`). **Find-and-replace them with your own** across `~/farm-kit/scripts/` and `config/` before first use, and set each printer's `[mcu] serial:` to its own port (section 7). If you keep the same names, nothing to change.
+> **⚠️ Pitfall — the kit uses the author's printer names & ports.** Because you're cloning real working files, they carry the author's names (`Omega`/`Unicorn`/`Dimeter`/`Trident`) and ports (`7128`/`7125`/`7126`/`7127`). **Find-and-replace them with your own** across `~/farm-kit/scripts/` and `config/` before first use, and set each printer's `[mcu] serial:` to its own port (you *discover* the port in section 7 and *write* it into `printer.cfg` in section 9). If you keep the same names, nothing to change.
 
 ---
 
@@ -184,14 +184,14 @@ cd ~ && git clone https://github.com/dw-0/kiauh.git
 → Downloads KIAUH and launches its text menu. Everything below is done by picking numbered menu options.
 
 1. **[Remove]** → remove the preinstalled **Klipper**, then **Moonraker**. Leave KlipperScreen.
-2. **[Install] → Klipper** → **4 instances**. If custom names are offered, use `omega unicorn dimeter trident` (lowercase → `printer_omega_data` etc.); if only numbers, use `1`–`4`.
+2. **[Install] → Klipper** → **4 instances**. If custom names are offered, enter them in **UPPERCASE** — `OMEGA UNICORN DIMETER TRIDENT` (→ folders `printer_OMEGA_data` and services `klipper-OMEGA`/`moonraker-OMEGA`). Every command later in this guide loops over the uppercase names, so matching them here is what makes those loops and `systemctl` calls work. If only numbers are offered, use `1`–`4` and substitute your numbers wherever a name appears below.
 3. **[Install] → Moonraker** → auto-creates four on ports **7125–7128**.
 4. **[Install] → Fluidd** → one install serves all four.
 5. **Later, for sections 11–12:** **[Install] → Advanced → G-Code Shell Command** — lets macros run shell scripts (needed for the sound-theme buttons and shows). Install it *before* adding any macro that references it. **Crowsnest** (cameras, section 14) is here too.
 
 > **⚠️ Pitfall — skip the Mainsail/client-config macro package.** If KIAUH offers a client-config macro set, **skip it**. Your restored configs (and the kit's `macros.cfg`) already define `PAUSE`/`RESUME`/`CANCEL_PRINT`; installing it on top creates duplicate-macro definitions and Klipper refuses to start.
 
-Each instance owns a folder: `~/printer_1_data/config/` … or `~/printer_OMEGA_data/config/`.
+Each instance owns a folder named after what you entered: `~/printer_OMEGA_data/config/` (or `~/printer_1_data/config/` if you used numbers). The rest of the guide assumes the uppercase names.
 
 ---
 
@@ -282,13 +282,14 @@ Restart each instance (Fluidd prompts, or `sudo systemctl restart klipper-<name>
 
 ## 10. Fluidd & KlipperScreen
 
-From any browser on your network, open `http://<pad-ip>/`. Click the printer name → **Add printer** → add the others by `ip:port` (`:7125`, `:7126`, `:7127`; the port-80 default is the fourth). Give each its own **theme color**. For the pad's touchscreen, drop a 4-printer `KlipperScreen.conf` in place and restart it:
+From any browser on your network, open `http://<pad-ip>/`. Click the printer name → **Add printer** → add the others by `ip:port` (`:7125`, `:7126`, `:7127`; the port-80 default is the fourth). Give each its own **theme color**. For the pad's touchscreen, put the kit's ready-made four-printer `KlipperScreen.conf` in place (edit its names/ports to match yours first) and restart it:
 
 **🖥️ Pad · SSH / bash**
 ```bash
+cp ~/farm-kit/config/KlipperScreen.conf ~/KlipperScreen.conf   # then edit names/ports if yours differ
 sudo systemctl restart KlipperScreen
 ```
-→ Reloads the touchscreen UI so it picks up the 4-printer config. ([Fluidd docs](https://docs.fluidd.xyz) · [KlipperScreen theming](https://klipperscreen.readthedocs.io/en/latest/Theming/).)
+→ Installs a touchscreen config with one `[printer <Name>]` block per instance (each pointing at that printer's Moonraker port) and reloads the UI so all four appear on the pad's screen with a switcher. If you cloned the kit later (section 11), do this copy then. ([Fluidd docs](https://docs.fluidd.xyz) · [KlipperScreen theming](https://klipperscreen.readthedocs.io/en/latest/Theming/).)
 
 > **✅ This is normal — Fluidd quirks.** After pasting a printer URL, backspace and retype one character or the validation never fires. And the printer list sorts by its own logic — don't fight it.
 
@@ -321,6 +322,28 @@ for P in OMEGA UNICORN DIMETER TRIDENT; do
 done
 ```
 → Copies the one shared macro file into all four config folders. Then, in each printer's `printer.cfg`, add `[include macros.cfg]` at the top and delete the now-duplicated `PAUSE`/`RESUME`/`CANCEL_PRINT`/`M420`/`G29` blocks (Klipper errors on duplicates).
+
+Next, give each instance its **own name** — this is what makes a printer speak, roll-call, and light up as itself. `macros.cfg` reads the name from a tiny per-printer `machine.cfg` (`[gcode_macro _MACHINE] variable_name: "…"`); the kit ships `config/machine.cfg.example` as the template:
+
+**🖥️ Pad · SSH / bash**
+```bash
+declare -A NAME=( [OMEGA]=Omega [UNICORN]=Unicorn [DIMETER]=Dimeter [TRIDENT]=Trident )
+for P in OMEGA UNICORN DIMETER TRIDENT; do
+  cp ~/farm-kit/config/machine.cfg.example ~/printer_${P}_data/config/machine.cfg
+  sed -i "s/^variable_name:.*/variable_name: \"${NAME[$P]}\"/" ~/printer_${P}_data/config/machine.cfg
+done
+```
+→ Drops a `machine.cfg` into each instance and stamps it with that printer's spoken name (the `NAME` map turns the UPPERCASE instance key into the pretty display name — edit both sides to your own names). Then add `[include machine.cfg]` to each `printer.cfg` alongside the `[include macros.cfg]` line. Without this, the macros still run but can't announce a name (they fall back to silent).
+
+Finally, copy the **fleet helper scripts** to your home directory — later sections call them by `~/name` (`restart-all.sh` in sections 11/15, `port-assign.sh` in sections 7/17, `replicate-fluidd-macros.sh` in section 17):
+
+**🖥️ Pad · SSH / bash**
+```bash
+cp ~/farm-kit/scripts/restart-all.sh ~/farm-kit/scripts/port-assign.sh \
+   ~/farm-kit/scripts/replicate-fluidd-macros.sh ~
+chmod +x ~/restart-all.sh ~/port-assign.sh ~/replicate-fluidd-macros.sh
+```
+→ Puts the fleet-management tools where every later command expects them (`~`). `restart-all.sh` restarts the whole farm in fleet order and skips busy printers; `port-assign.sh` records/re-maps USB ports; `replicate-fluidd-macros.sh` copies the macro-button layout to a new instance.
 
 Standardize the lights fleet-wide — every printer's `printer.cfg` gets:
 
@@ -534,7 +557,16 @@ Optional, and the streaming backend is **already preinstalled**: the SonicPad-De
    ```
    → Adds the one shared webcam stream to each of the four Moonraker instances, so it shows in every printer's Fluidd page. Set `PAD_IP` to the pad's address (the stream URL must be the pad's LAN IP so other devices can load it — another reason the DHCP reservation matters). Idempotent: re-run if the address changes.
 
-> **🔍 Aside — the camera speaks in chimes.** The kit's `cam-watch.sh`/`cam-snapshot.sh` tie camera actions (stream online/offline, snapshot, recording start/stop) to the chime system, so the farm acknowledges camera events with sounds — no separate voice persona, just feedback. Wire them in only if you want the audible cues.
+> **🔍 Aside — the camera speaks in chimes (optional).** The kit's `cam-watch.sh`/`cam-snapshot.sh` tie camera actions (stream online/offline, snapshot, recording start/stop) to the chime system, so the farm acknowledges camera events with sounds — no separate voice persona, just feedback. To enable them, copy them into place and install the watcher service:
+>
+> **🖥️ Pad · SSH / bash**
+> ```bash
+> cp ~/farm-kit/scripts/cam-watch.sh ~/farm-kit/scripts/cam-snapshot.sh ~
+> chmod +x ~/cam-watch.sh ~/cam-snapshot.sh
+> sudo cp ~/farm-kit/config/cam-watch.service /etc/systemd/system/   # ships in the kit
+> sudo systemctl daemon-reload && sudo systemctl enable --now cam-watch
+> ```
+> → Installs the camera-event watcher the same way as the chime daemon (section 12). Skip this whole aside if you just want the video feed without audible camera cues.
 
 ---
 
@@ -549,11 +581,11 @@ The pad has **one** ADXL345, and only one printer's Klipper can own it at a time
 **🖥️ Pad · SSH / bash**
 ```bash
 cd ~/farm-kit
-cp scripts/shape.sh scripts/shape-run.sh scripts/setup-shaper.sh config/adxl-shape.cfg ~
+cp scripts/shape.sh scripts/shape-run.sh scripts/setup-shaper.sh config/shaper.cfg config/adxl-shape.cfg ~
 chmod +x ~/shape.sh ~/shape-run.sh ~/setup-shaper.sh
-~/setup-shaper.sh          # wires shaper.cfg + adxl.cfg into all four printers
+~/setup-shaper.sh          # distributes shaper.cfg + wires adxl.cfg into all four printers
 ```
-→ Installs the shaper tooling and wires each printer's config to share the one sensor. `setup-shaper.sh` also checks the two prerequisites — the SPI device and the linux-host-MCU socket — and tells you if the SPI overlay still needs enabling.
+→ Installs the shaper tooling and wires each printer's config to share the one sensor. `adxl-shape.cfg` is the master accelerometer definition; `setup-shaper.sh` copies `shaper.cfg` into every instance and creates each printer's `adxl.cfg` placeholder (the include the `RUN_INPUT_SHAPER` handshake toggles when it claims the sensor). It also checks the two prerequisites — the SPI device and the linux-host-MCU socket — and tells you if the SPI overlay still needs enabling.
 
 Then, per printer:
 
@@ -589,7 +621,7 @@ To add the two `_gcode` lines to all four printers at once (idempotent — only 
 ```bash
 for P in OMEGA UNICORN DIMETER TRIDENT; do
   C=~/printer_${P}_data/config/printer.cfg
-  grep -q "runout_gcode" "$C" || sed -i '/^pause_on_runout: true/a runout_gcode: RUNOUT_ALERT' "$C"
+  grep -q "runout_gcode" "$C" || sed -i '/^pause_on_runout:/Ia runout_gcode: RUNOUT_ALERT' "$C"
   grep -q "insert_gcode"  "$C" || sed -i '/^runout_gcode: RUNOUT_ALERT/a insert_gcode: RUNOUT_INSERT' "$C"
 done
 ~/restart-all.sh

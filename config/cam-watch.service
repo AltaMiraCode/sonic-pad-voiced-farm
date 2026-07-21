@@ -1,0 +1,15 @@
+[Unit]
+Description=Farm camera hotplug watcher + ustreamer stream (chime edition)
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=sonic
+ExecStart=/home/sonic/cam-watch.sh
+Restart=always
+RestartSec=5
+# stop the stream cleanly on service stop
+ExecStopPost=/usr/bin/pkill -f "ustreamer .*--port=8080"
+
+[Install]
+WantedBy=multi-user.target
