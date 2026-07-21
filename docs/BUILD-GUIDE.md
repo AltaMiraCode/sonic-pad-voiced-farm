@@ -342,7 +342,7 @@ for f in scripts/* config/*; do
     sed -i "s/${old}/${new}/g; s/${old^^}/${new^^}/g; s/${old,,}/${new,,}/g" "$f"
   done
 done
-grep -rIl -E 'Omega|Unicorn|Dimeter|Trident' scripts config \
+grep -riIl -E 'Omega|Unicorn|Dimeter|Trident' scripts config \
   && echo "^ still mention an author name — open these and fix by hand" \
   || echo "clean — no author names remain in the kit"
 ```
@@ -550,6 +550,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now sonicpad-chimes
 **🖥️ Pad · SSH / bash**
 ```bash
 cd ~/farm-kit && cp scripts/render_voicebank.sh scripts/setup_voicebank.sh ~
+chmod +x ~/render_voicebank.sh ~/setup_voicebank.sh
 ~/setup_voicebank.sh
 ```
 → Downloads Piper and the printer voices, renders every fixed line into `~/voicebank/`, and normalizes them as loud as the chimes. Takes a few minutes.
@@ -709,7 +710,7 @@ done
 ```
 → Inserts `runout_gcode`/`insert_gcode` under each printer's existing `pause_on_runout`, then restarts the fleet. After this a runout auto-pauses, alarms, and walks you through the reload. The feed waits ~20 min for each press and bails gracefully if you resume manually from Fluidd. (The macros know which printer they're on from `machine.cfg`, so no per-printer name argument is needed.)
 
-> **✓ Expect:** the `for` loop is **silent** (the `grep -q … ||` guard only edits files that need it — re-running prints nothing because the lines are already present). `~/restart-all.sh` then prints a per-printer restart line and you'll **hear the roll-call** as the fleet comes back. Confirm it took with `grep -n runout_gcode ~/printer_OMEGA_data/config/printer.cfg` — you should see the two new lines under `pause_on_runout`.
+> **✓ Expect:** the `for` loop is **silent** (the `grep -q … ||` guard only edits files that need it — re-running prints nothing because the lines are already present). `~/restart-all.sh` then prints a per-printer restart line and you'll **hear the roll-call** as the fleet comes back. Confirm it took with `grep -nE 'runout_gcode|insert_gcode' ~/printer_OMEGA_data/config/printer.cfg` — you should see the two new lines under `pause_on_runout`.
 
 ---
 
@@ -759,7 +760,8 @@ The kit is already wired for eight — the extra names, ports, and voices are ch
    C=~/printer_${NEW}_data/config/printer.cfg
    sed -i '/^#\*#/,$d' "$C"                       # drop the donor's SAVE_CONFIG block (it re-tunes)
    # then edit [mcu] serial: -> the new by-path (from: ls /dev/serial/by-path/)
-   sed -i 's/"'"$DONOR"'"/"'"$NEW"'"/' ~/printer_${NEW}_data/config/machine.cfg  # set the spoken name
+   DISP=${NEW,,}; DISP=${DISP^}                    # TESSERACT -> Tesseract (spoken/display case)
+   sed -i "s/^variable_name:.*/variable_name: \"$DISP\"/" ~/printer_${NEW}_data/config/machine.cfg  # set the spoken name
 
    # Moonraker on the new port
    M=~/printer_${NEW}_data/config/moonraker.conf
