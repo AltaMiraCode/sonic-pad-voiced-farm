@@ -1,0 +1,3 @@
+[gcode_macro _MACHINE]
+variable_name: "Omega"
+gcode:
