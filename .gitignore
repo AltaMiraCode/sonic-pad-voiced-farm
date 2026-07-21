@@ -1,0 +1,4 @@
+*.CUR
+*.log
+voicebank/
+.env

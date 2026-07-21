@@ -1,0 +1,15 @@
+[Unit]
+Description=Sonic Pad print-event chimes (all four printers)
+After=network-online.target moonraker-OMEGA.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sonic
+SupplementaryGroups=audio
+ExecStart=/usr/bin/python3 /home/sonic/sonicpad-chimes.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
