@@ -507,23 +507,32 @@ With dimmable LEDs (`_LEDW`) and the themes in place, the fleet performs. Four o
 
 ## 14. Cameras
 
-Optional, but easy once the stack is up. USB webcams on the pad get served by [Crowsnest](https://github.com/mainsail-crew/crowsnest) (the Mainsail/Fluidd webcam service), and one helper registers the stream in *every* printer's Fluidd so you can watch any machine from any printer's page.
+Optional, and the streaming backend is **already preinstalled**: the SonicPad-Debian image ships **µStreamer** (`/usr/bin/ustreamer`), a lightweight MJPEG streamer. You plug in a USB webcam, start µStreamer on port 8080, and run one helper to register the stream in *every* printer's Fluidd.
 
-1. **Get Crowsnest.** It's frequently **already installed** on the SonicPad-Debian image — check first:
+> **"Can we preinstall this?" — it already is.** You don't install a streamer — µStreamer is on the image. ([Crowsnest](https://github.com/mainsail-crew/crowsnest), the Mainsail/Fluidd webcam *manager*, is an optional alternative via KIAUH → Advanced if you want its multi-camera config file — it just wraps the same µStreamer underneath. For a single shared farm camera, plain µStreamer is simplest.)
+
+1. **Plug in the webcam** (a powered hub if you're adding several) and confirm the pad sees it:
 
    **🖥️ Pad · SSH / bash**
    ```bash
-   systemctl status crowsnest      # "active (running)" = already there
+   ls /dev/video*      # you should see /dev/video0
    ```
-   → If it's not there, install it via KIAUH → **Advanced → Crowsnest**. Then plug your USB webcam(s) into the pad (a powered hub if you're adding several). The kit ships a starter **`config/cameras.conf`** you can drop in as a reference; Crowsnest's own `crowsnest.conf` selects the device and serves an MJPEG stream (default port **8080**: `/stream` and `/snapshot`).
-2. **Register it on all instances** with the kit's helper:
+2. **Start µStreamer on port 8080** (it serves `/stream` and `/snapshot`, which is what the helper registers):
 
-**🖥️ Pad · SSH / bash**
-```bash
-cp ~/farm-kit/scripts/register-webcam.sh ~ && chmod +x ~/register-webcam.sh
-PAD_IP=<pad-ip> ~/register-webcam.sh
-```
-→ Adds the one shared webcam stream to each of the four Moonraker instances, so it shows in every printer's Fluidd. Set `PAD_IP` to the pad's address (the stream URL must be the pad's LAN IP so other devices can load it — another reason the DHCP reservation matters). Idempotent: re-run if the address ever changes.
+   **🖥️ Pad · SSH / bash**
+   ```bash
+   ustreamer --device /dev/video0 --host 0.0.0.0 --port 8080 \
+             --resolution 1280x720 --format MJPEG --drop-same-frames 30 &
+   ```
+   → Starts the stream now. To run it on boot, wrap that in a small systemd service (`/etc/systemd/system/ustreamer.service` → `enable --now`) — the same pattern as the chime daemon in section 12.
+3. **Register the stream on all four printers** with the kit's helper:
+
+   **🖥️ Pad · SSH / bash**
+   ```bash
+   cp ~/farm-kit/scripts/register-webcam.sh ~ && chmod +x ~/register-webcam.sh
+   PAD_IP=<pad-ip> ~/register-webcam.sh
+   ```
+   → Adds the one shared webcam stream to each of the four Moonraker instances, so it shows in every printer's Fluidd page. Set `PAD_IP` to the pad's address (the stream URL must be the pad's LAN IP so other devices can load it — another reason the DHCP reservation matters). Idempotent: re-run if the address changes.
 
 > **🔍 Aside — the camera speaks in chimes.** The kit's `cam-watch.sh`/`cam-snapshot.sh` tie camera actions (stream online/offline, snapshot, recording start/stop) to the chime system, so the farm acknowledges camera events with sounds — no separate voice persona, just feedback. Wire them in only if you want the audible cues.
 
@@ -649,9 +658,34 @@ The kit is already wired for eight — the extra names, ports, and voices are ch
    ```
    → Clones a working instance, strips the donor's tuning (you'll re-tune), renames it everywhere, moves it to the new port, and starts its two services. Set the `[mcu] serial:` to the new printer's by-path by hand — that's the one value that's physical, not copyable. (Adjust `DONOR`/`PORT`/paths to your setup.)
 3. **Flash the board** (if new stock) with the section-8 process.
-4. **Turn on the announcements:** uncomment `PRINTERS[7129] = "Tesseract"` in `~/sonicpad-chimes.py`, add the name to the `CAST` line in `~/render_voicebank.sh`, run `~/setup_voicebank.sh` (downloads + renders the new voice), then `sudo systemctl restart sonicpad-chimes`.
-5. **Wire the tooling:** add the new port to `setup-shaper.sh`'s map and run `~/setup-shaper.sh`; uncomment the printer's line in `~/replicate-fluidd-macros.sh` and run it (copies the Fluidd macro-panel layout).
-6. **Add it to Fluidd** (the new `ip:7129`), **calibrate** it (section 18), and confirm **backups** cover its new config dir.
+4. **Turn on the announcements & voice:**
+
+   **🖥️ Pad · SSH / bash**
+   ```bash
+   NEW=Tesseract; PORT=7129
+
+   # register the printer with the chime daemon (uncomment its prewired line, or add it)
+   sed -i "s|^# *\(PRINTERS\[${PORT}\]\)|\1|" ~/sonicpad-chimes.py
+   grep -q "PRINTERS\[${PORT}\]" ~/sonicpad-chimes.py \
+     || echo "PRINTERS[${PORT}] = \"${NEW}\"" >> ~/sonicpad-chimes.py
+
+   # add it to the voicebank CAST (the space-separated list of names)
+   grep -qw "$NEW" <(grep '^CAST=' ~/render_voicebank.sh) \
+     || sed -i "s/^\(CAST=\"[^\"]*\)\"/\1 ${NEW}\"/" ~/render_voicebank.sh
+
+   ~/setup_voicebank.sh                    # downloads + renders the new printer's voice
+   sudo systemctl restart sonicpad-chimes  # daemon now watches the new port
+   ```
+   → Uncomments (or adds) the printer in the daemon's port map, appends it to the voice-render cast, renders its voice, and restarts the daemon so it announces the newcomer.
+5. **Wire the shaping & Fluidd tooling:**
+
+   **🖥️ Pad · SSH / bash**
+   ```bash
+   ~/setup-shaper.sh             # re-wires the shared accelerometer to include the new printer
+   ~/replicate-fluidd-macros.sh  # copies the Fluidd macro-panel layout to the new instance
+   ```
+   → `setup-shaper.sh` picks up the new instance for one-button input shaping (section 15); `replicate-fluidd-macros.sh` gives it the same tidy macro-button layout. (If your kit keeps 5–8 commented out, uncomment the printer's line in each script first.)
+6. **Finish up:** add the new instance to Fluidd (the new `ip:7129`), **calibrate** it (section 18, in the macro order), and confirm **backups** (section 16) cover its new config dir.
 
 > **🔍 Aside — the shows and daemon pick it up automatically.** Once the instance and voice exist, the four silly shows, the fleet light macros, and the roll-call all include the newcomer on their own — casts are built from whatever's reachable. Nothing show-side needs editing.
 
