@@ -4,6 +4,8 @@ A complete roadmap: wipe the abandoned firmware, run four (or eight) Neptune 3 P
 
 > Built and battle-tested on a four-printer Elegoo Neptune 3 Pro farm (Omega · Unicorn · Dimeter · Trident), prewired for eight (Tesseract · Pentagram · Sestina · Hydra).
 
+> **⚠️ Read first — this guide targets the Elegoo Neptune 3 *Pro* specifically.** The OS-replacement path (Debian → KIAUH → mainline Klipper/Moonraker/Fluidd) works on almost any Klipper-capable host, but the **printer-side specifics are Neptune 3 Pro values**: the STM32F401 firmware target (section 8), the board pins baked into `printer.cfg` and the kit (e.g. runout `!PA4`, LED `PB9`), the CH340 `by-path` binding (section 7), and the bed dimensions. Other models in the Neptune 3 line (the base **3**, **Plus**, **Max**) and any other brand will need their **own** board config, pin names, firmware target, and bed size — treat every printer-specific value here as an example to adapt, not a constant to copy. The personality layer (voice, chimes, shows, backups) is model-agnostic once Klipper is running.
+
 ### 📖 How to read this guide
 
 **Where each command runs.** Every command block is tagged:
@@ -380,12 +382,14 @@ All appear as buttons in Fluidd and KlipperScreen.
 | 1 | `TUNE_PID_HOTEND` | PID-calibrates the hotend heater, then saves — smooths temperature swings. |
 | 2 | `TUNE_PID_BED` | Same for the heated bed. |
 | 3 | `TUNE_PROBE` | Calibrates the probe's Z-offset and saves it. |
-| 4 | `BED_SCREWS` | Screw-tilt: probes the corners and tells you, per screw, which way and how far to turn. Re-run until "adjusted." |
+| 4 | `BED_SCREWS` | Screw-tilt: probes the corners and tells you, per screw, which way and how far to turn. On the Neptune 3 Pro's stiff metal-spacer bed you'll only get it *close* — match non-diagonal edge pairs and stop (see the aside below). |
 | 5 | `TUNE_TWIST` | Axis-twist compensation — measures gantry twist across X so the mesh isn't fooled by it, then saves. |
 | 6 | `BED_LEVELING` | Homes and runs a fresh bed mesh (adaptive-aware), then saves — after screws and twist are right. |
 | 7 | `RUN_INPUT_SHAPER` | The one-button resonance run (X-stop handshake, section 15). Saves both axis shapers. |
 
 → After these, do pressure advance and slicer-side tuning (section 18). The Marlin shims `G28` (home), `G29` (home + mesh), `M420` (load a saved mesh) keep slicer-generated start G-code working.
+
+> **🔍 Aside — the Neptune 3 Pro barely screw-levels, and that's fine.** The Pro's bed sits on **rigid metal spacers/standoffs**, not compliant leveling springs, so the corner knobs have almost no usable travel — you **cannot** dial in a perfect mechanical plane the way you would on a spring-bed Ender, and trying to chase all four corners (plus the diagonals) to one number is a fight you can't win. (The Neptune 3 line shares a common bed/frame, so the Plus and Max very likely behave the same — confirm on yours; the base 3 too.) So don't overthink `BED_SCREWS`: aim only to get each **edge even with itself** — front-left ≈ front-right (front edge), back-left ≈ back-right (back edge), front-left ≈ back-left (left side), front-right ≈ back-right (right side) — i.e. match **non-diagonal** pairs, not opposite corners. Get the edges close, then let the auto-probe mesh (`BED_LEVELING`, which `SAVE_CONFIG`s a full bed mesh) compensate for the residual tilt at print time. That mesh is doing the real leveling; the screws just get you into range.
 
 **Sound**
 
@@ -726,6 +730,8 @@ The kit is already wired for eight — the extra names, ports, and voices are ch
 ## 18. Phase 2 — tune the fleet
 
 Once all machines print, tune each at your own pace, in the macro order from section 11: a mechanical once-over; PID (hotend, bed); extruder `rotation_distance`; z-offset (`TUNE_PROBE`); bed screws + twist; a fresh mesh (`BED_LEVELING`); input shaping (section 15); then [pressure advance](https://www.klipper3d.org/Pressure_Advance.html); then slicer-side flow/temp/retraction ([Ellis' guide](https://ellis3dp.com/Print-Tuning-Guide/)). Klipper's [resonance docs](https://www.klipper3d.org/Measuring_Resonances.html) back the shaping step.
+
+> **🔍 Aside — don't over-invest in the "bed screws" step on a Neptune 3 Pro.** As covered in section 11, the Pro's rigid metal-spacer bed won't take a true screw-level — get the non-diagonal edge pairs near-even and move on; the auto-probe mesh does the real work. Spend the saved time on PID, pressure advance, and input shaping, which actually move print quality.
 
 > **🔍 Aside — keep a fleet scorecard.** Record every printer's tuned values (z-offset, PID, e-steps, shaper frequencies, pressure advance) on one page, side by side. It's how you spot the outlier — and how you re-enter everything instantly after any future rebuild.
 
