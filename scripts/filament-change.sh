@@ -11,9 +11,10 @@
 #   (at temp) say "<name> nozzle temperature reached, make sure bed is clear,
 #             then press the x stop button on the printer head bar to continue"
 #   [press] -> head to FAR-RIGHT, OFF the bed (bed BACK)
-#   say  "<name> cut filament at base, insert new filament then press x stop
-#         on printer head bar to purge and wipe"
-#   [press] -> 110 mm purge off the right edge, THEN wipe automatically (no extra press)
+#   say  "<name> cut filament at base, insert new filament then quick press x stop
+#         ... for same color. long hold for color change purge and wipe"
+#   [quick press] -> "same color selected"   -> 30 mm extrude,  then wipe automatically
+#   [long hold]   -> "color change selected"  -> 110 mm purge,   then wipe automatically
 #   say  "<name> filament change complete. cooling"   + heater off
 #   (when cool) say "<name> cooled temperature safe"
 
@@ -34,7 +35,9 @@ REQ_TEMP="${2:-0}"
 PARK_X=235          # hard against the X max (235) - fully off the right edge of the bed
 PARK_Y=0            # bed racked back -> nozzle over the FRONT edge (see note above)
 PURGE_Z=6           # nozzle height above the front edge while purging (mm)
-PURGE_TOTAL=110     # total mm of filament to purge
+PURGE_TOTAL=110     # mm of filament for a COLOR CHANGE (long hold)
+SHORT_EXTRUDE=30    # mm for a QUICK press (same-color reload)
+LONG_HOLD_MS=800    # hold the X-stop at least this long (ms) to count as a long hold
 PURGE_CHUNK=15      # mm per extrude move (MUST stay under Klipper max_extrude_only_distance, default 50)
 PURGE_FEED=300      # extrude speed, mm/min (5 mm/s)
 WIPE_Z=0.2          # skim height for the wipe (mm)
@@ -81,6 +84,28 @@ wait_press() {   # 0=fresh press  1=timeout. Samples CONTINUOUSLY (~0.08s) so a 
     return 1
 }
 
+press_kind() {   # echo short | long | timeout. Times how long the X-stop is held.
+                 # A quick tap = short; holding >= LONG_HOLD_MS = long (reported as soon as the
+                 # threshold is crossed, while still held, so the announcement is immediate).
+    local t0 ps now
+    t0=$SECONDS
+    while [ "$(xstate)" != "open" ]; do [ $((SECONDS - t0)) -ge 20 ] && break; sleep 0.02; done   # debounce
+    t0=$SECONDS
+    while [ $((SECONDS - t0)) -lt "$PRESS_TIMEOUT_S" ]; do
+        if [ "$(xstate)" = "TRIGGERED" ]; then
+            ps=$(date +%s%3N)
+            while [ "$(xstate)" = "TRIGGERED" ]; do
+                now=$(date +%s%3N)
+                [ $((now - ps)) -ge "$LONG_HOLD_MS" ] && { echo long; return 0; }
+                sleep 0.03
+            done
+            echo short; return 0
+        fi
+        sleep 0.02
+    done
+    echo timeout; return 1
+}
+
 # ---- 0) announce start, then home FIRST (while still cold, before any heating)
 say "$NAME change filament process started"
 H=$(homed)
@@ -109,13 +134,19 @@ gc "G1 Z${PURGE_Z} F600" 30
 gc "G1 X${PARK_X} Y${PARK_Y} F6000" 40
 gc "M400" 60
 
-# ---- 5) prompt swap, wait for ONE press, then purge 110 mm AND wipe automatically
-say "$NAME cut filament at base, insert new filament then press x stop on printer head bar to purge and wipe"
-wait_press || { say "$NAME filament change timed out"; exit 1; }
+# ---- 5) prompt swap; QUICK press = same-color (short extrude), LONG hold = color change (full purge)
+say "$NAME cut filament at base, insert new filament then quick press x stop on printer head bar for same color. long hold for color change purge and wipe"
+KIND=$(press_kind)
+[ "$KIND" = "timeout" ] && { say "$NAME filament change timed out"; exit 1; }
+if [ "$KIND" = "long" ]; then
+    say "$NAME color change selected"; TOTAL="$PURGE_TOTAL"
+else
+    say "$NAME same color selected";  TOTAL="$SHORT_EXTRUDE"
+fi
 gc "M83" 5
 fed=0
-while [ "$fed" -lt "$PURGE_TOTAL" ]; do
-    step="$PURGE_CHUNK"; rem=$((PURGE_TOTAL - fed)); [ "$rem" -lt "$step" ] && step="$rem"
+while [ "$fed" -lt "$TOTAL" ]; do
+    step="$PURGE_CHUNK"; rem=$((TOTAL - fed)); [ "$rem" -lt "$step" ] && step="$rem"
     gc "G1 E${step} F${PURGE_FEED}" 120
     fed=$((fed + step))
 done
