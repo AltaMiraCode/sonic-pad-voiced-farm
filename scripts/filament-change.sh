@@ -86,7 +86,8 @@ wait_press() {   # 0=fresh press  1=timeout. Samples CONTINUOUSLY (~0.25s) so a 
     return 1
 }
 
-# ---- 0) home FIRST, while still cold (before any heating), if not already homed
+# ---- 0) announce start, then home FIRST (while still cold, before any heating)
+say "$NAME change filament process started"
 H=$(homed)
 if [[ "$H" != *x* || "$H" != *y* || "$H" != *z* ]]; then gc "G28" 180; fi
 
@@ -97,8 +98,8 @@ if [ "${TEMP:-0}" -le 0 ]; then
     if [ "${CUR:-0}" -gt 170 ]; then TEMP="$CUR"; else TEMP="$DEFAULT_TEMP"; fi
 fi
 
-# ---- 2) announce + heat, block until at temp
-say "$NAME change filament process started, heating nozzle"
+# ---- 2) announce heating + heat, block until at temp
+say "$NAME heating nozzle"
 gc "M104 S${TEMP}" 15
 gc "M109 S${TEMP}" 900          # wait for nozzle temperature
 

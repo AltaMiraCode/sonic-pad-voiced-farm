@@ -471,7 +471,7 @@ All appear as buttons in Fluidd and KlipperScreen.
 | `NOZZLE_PARK` | Lifts and parks the toolhead out of the way. |
 | `MOTORS_RELEASE` | Disables the steppers so you can move the axes by hand. |
 | `M600` | Filament change — pauses, parks, and unloads for a swap mid-print. |
-| `FILAMENT_CHANGE` | Guided **standalone** filament swap (heats from cold — *not* for mid-print; that's `M600`). Voice-prompted, driven by the X-stop button: press to begin → head parks front-right, bed back → cut & insert new filament, press → 110 mm purge off the bed → press → wipe → heater off & cool down. Temp defaults to auto (keeps current if hot, else 200 °C); positions tunable at the top of `filament-change.sh` (§15). |
+| `FILAMENT_CHANGE` | Guided **standalone** filament swap (heats from cold — *not* for mid-print; that's `M600`). Voice-prompted, driven by the X-stop button: homes cold → heats → press to begin → head parks off the right edge of the bed → cut & insert new filament, press → 110 mm purge off the bed → press → wipe → heater off & cool down. Temp defaults to auto (keeps current if hot, else 200 °C); positions tunable at the top of `filament-change.sh` (§15). |
 | `PRINT_START` / `PRINT_END` | The slicer entry/exit points (temps, home, purge / cool-down, park, lights). |
 | `PAUSE` · `RESUME` · `CANCEL_PRINT` | The standard controls Fluidd calls — with a bounded Z-hop park; CANCEL also kills the fan and releases motors. |
 
@@ -717,9 +717,9 @@ done
 
 Different from a runout: **`FILAMENT_CHANGE`** is a **standalone**, voice-narrated swap for changing colour or material on purpose. It heats from cold, so it's for a deliberate swap — for a change *during* a print, use `M600`/`PAUSE` instead. It runs `filament-change.sh` and uses the same X-stop button on the print-head bar as the shaping and runout flows. From the Fluidd/KlipperScreen button (or `FILAMENT_CHANGE TEMP=240` to set the nozzle temp):
 
-1. It heats the nozzle (to the passed `TEMP`, else the current target if already hot, else 200 °C), then says **"…nozzle temperature reached, make sure bed is clear, then press the X-stop button to continue."**
-2. **Press** → the head parks **front-right** and the bed racks back so the nozzle sits at the front edge; it says **"cut filament at base, insert new filament, then press X-stop to purge."**
-3. **Press** → a **110 mm purge off the front edge** of the bed (chunked into short moves to stay under Klipper's `max_extrude_only_distance`), then **"purge complete… press X-stop to wipe."**
+1. It announces **"…change filament process started,"** homes first if needed (while still cold), then announces **"…heating nozzle"** and brings the nozzle to temp (the passed `TEMP`, else the current target if already hot, else 200 °C), then says **"…nozzle temperature reached, make sure bed is clear, then press the X-stop button to continue."**
+2. **Press** → the head parks **off the right edge of the bed** (bed racked back); it says **"cut filament at base, insert new filament, then press X-stop to purge."**
+3. **Press** → a **110 mm purge off the right edge** of the bed (chunked into short moves to stay under Klipper's `max_extrude_only_distance`), then **"purge complete… press X-stop to wipe."**
 4. **Press** → it wipes the ooze across the bed, says **"filament change complete. cooling,"** turns the heater off, and when the nozzle drops below 40 °C plays the fleet's **"cooled temperature safe"** line.
 
 Each prompt waits ~2.5 min for a press, then times out cleanly. The X-stop is polled **continuously (~0.25 s)**, so a quick **tap** registers — no need to hold the switch (the runout and input-shaping flows use the same fast-poll).

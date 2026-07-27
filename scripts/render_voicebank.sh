@@ -78,7 +78,7 @@ PHRASES=("preheating" "starting print" "print complete" "paused" "resuming" \
          "y axis test complete" \
          "input shaping model created" "resonance input shaping complete" \
          "input shaping failed" "input shaping timed out and was canceled" \
-         "change filament process started, heating nozzle" \
+         "change filament process started" "heating nozzle" \
          "nozzle temperature reached, make sure bed is clear, then press the x stop button on the printer head bar to continue" \
          "cut filament at base, insert new filament then press x stop on printer head bar to purge" \
          "purge complete, filament set. press x stop button on printer head bar to wipe" \
@@ -94,6 +94,17 @@ FREQ_PHRASES=("accelerometer claimed" "testing frequencies. 5 hertz" "25 hertz" 
 
 # system phrases (System voice, literal - no printer name)
 SYS_PHRASES=("low disk space" "update available" "wifi reconnected" "unknown printer connected")
+
+# TARGETED mode: set ONLY_PHRASES (newline-separated) to render just those phrases
+# per CAST voice and SKIP the frequency / thermal / name / system / fleet extras.
+# The loudness-normalize pass still runs so the new clips match. Great for a quick
+# phrase tweak instead of a full ~50-min re-render. Example:
+#   ONLY_PHRASES=$'change filament process started\nheating nozzle' \
+#     CAST="Omega Unicorn Dimeter Trident Tesseract Pentagram Sestina Hydra" ~/render_voicebank.sh
+if [ -n "$ONLY_PHRASES" ]; then
+    mapfile -t PHRASES <<< "$ONLY_PHRASES"
+    FREQ_PHRASES=(); SYS_PHRASES=(); SKIP_EXTRAS=1
+fi
 
 render_one() {  # $1=model-or-espeak-args  $2=out  $3=text  $4=is_espeak  $5=sargs
     if [ "$4" = "1" ]; then
@@ -139,6 +150,7 @@ for NAME in $CAST; do
     # thermal alert: warning brackets both ends, name embedded, printer's own voice.
     # For split-tempo printers (Trident) the bracketing "warning warning" is
     # slowed to 1.5 and the middle stays at his body tempo; stitched to one clip.
+    if [ -z "$SKIP_EXTRAS" ]; then    # thermal-alarm clip skipped in targeted mode
     TEXT="warning warning $NAME heating failed warning warning"
     KEY=$(echo "$TEXT" | tr '[:upper:]' '[:lower:]' | tr ' ' '_')
     OUT=~/voicebank/$KEY.wav
@@ -158,8 +170,10 @@ o.close()"
     else
         render_one "$MODEL" "$OUT" "$TEXT" "$IS_ESP" "$SARG"
     fi
+    fi    # end thermal-alarm guard
 done
 
+if [ -z "$SKIP_EXTRAS" ]; then    # name / system / fleet clips skipped in targeted mode
 # BARE PRINTER-NAME clips: each printer saying just its own name, into
 # ~/voicebank/<name>.wav. These are general, reusable assets - the shows'
 # roll-call (rangers.sh) and the race winner reveal (race.sh) call
@@ -196,6 +210,8 @@ for ph in "all lights on" "all lights off" "start your engines" \
     echo "  [System voice] $ph"
     espeak-ng ${ESPEAK[System]} -a 190 -w ~/voicebank/$KEY.wav "$ph" 2>/dev/null
 done
+
+fi    # end name/system/fleet guard (targeted mode)
 
 rm -f /tmp/_n.wav /tmp/_b.wav /tmp/_w1.wav /tmp/_m.wav /tmp/_w2.wav
 
