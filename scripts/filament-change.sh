@@ -62,26 +62,23 @@ homed() {   # echo the homed_axes string, e.g. "xyz"
     q "toolhead=homed_axes" | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['status']['toolhead']['homed_axes'])" 2>/dev/null
 }
 
-xstate() {   # echo TRIGGERED or open (freshest QUERY_ENDSTOPS result). Fast settle so a tap is caught.
+xstate() {   # echo TRIGGERED or open. No python spawn, no settle (Moonraker's POST already blocks
+             # until QUERY_ENDSTOPS lands in the store) -> ~4-5x faster sampling, so a quick TAP registers.
     curl -s -m3 -X POST "http://127.0.0.1:$P/printer/gcode/script?script=QUERY_ENDSTOPS" >/dev/null 2>&1
-    sleep 0.2
-    curl -s -m3 "http://127.0.0.1:$P/server/gcode_store?count=8" | python3 -c "
-import sys,json
-st='open'
-for m in json.load(sys.stdin)['result']['gcode_store']:
-    if 'stepper_x:' in m.get('message',''):
-        st='TRIGGERED' if 'stepper_x:TRIGGERED' in m['message'] else 'open'
-print(st)" 2>/dev/null
+    case "$(curl -s -m3 "http://127.0.0.1:$P/server/gcode_store?count=6" | grep -o 'stepper_x:TRIGGERED\|stepper_x:open' | tail -1)" in
+        *TRIGGERED) echo TRIGGERED ;;
+        *) echo open ;;
+    esac
 }
 
-wait_press() {   # 0=fresh press  1=timeout. Samples CONTINUOUSLY (~0.25s) so a brief TAP registers -
-                 # no more holding the switch. Debounce (see 'open' first), then wall-clock timeout.
+wait_press() {   # 0=fresh press  1=timeout. Samples CONTINUOUSLY (~0.08s) so a brief TAP registers -
+                 # no holding the switch. Debounce (see 'open' first), then wall-clock timeout.
     local t0=$SECONDS
-    while [ "$(xstate)" != "open" ]; do [ $((SECONDS - t0)) -ge 20 ] && break; sleep 0.05; done
+    while [ "$(xstate)" != "open" ]; do [ $((SECONDS - t0)) -ge 20 ] && break; sleep 0.02; done
     t0=$SECONDS
     while [ $((SECONDS - t0)) -lt "$PRESS_TIMEOUT_S" ]; do
         [ "$(xstate)" = "TRIGGERED" ] && return 0
-        sleep 0.05
+        sleep 0.02
     done
     return 1
 }

@@ -75,13 +75,7 @@ HANDOFF="$NAME x axis test complete. move accelerometer to bed. then press x sto
 # resumes the Y phase without the tablet.
 xstop_triggered() {
     curl -s -m3 -X POST "http://127.0.0.1:$P/printer/gcode/script?script=QUERY_ENDSTOPS" >/dev/null 2>&1
-    sleep 0.2
-    curl -s -m3 "http://127.0.0.1:$P/server/gcode_store?count=8" | python3 -c "
-import sys,json
-st=''
-for m in json.load(sys.stdin)['result']['gcode_store']:
-    if 'stepper_x:' in m.get('message',''): st=m['message']
-sys.exit(0 if 'stepper_x:TRIGGERED' in st else 1)" 2>/dev/null
+    curl -s -m3 "http://127.0.0.1:$P/server/gcode_store?count=6" | grep -o 'stepper_x:TRIGGERED\|stepper_x:open' | tail -1 | grep -q TRIGGERED
 }
 
 # 1. restart to load the accelerometer config and grab the sensor
@@ -124,7 +118,7 @@ while :; do
         say "$HANDOFF"
         LAST_PROMPT=$NOW
     fi
-    sleep 0.05
+    sleep 0.02
 done
 rm -f "$HOME/.shaper_waiting" "$HOME/.shaper_continue"
 if [ "$resumed" != "1" ]; then
