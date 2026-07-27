@@ -5,17 +5,15 @@
 # same technique as runout-feed.sh). For a swap DURING a print, use M600/PAUSE.
 #
 # Flow (each [press] = tap the X-stop switch on the print-head bar):
+#   say  "<name> change filament process started"
 #   home if needed (COLD, before heating)
-#   say  "<name> change filament process started, heating nozzle"     + heat to temp
+#   say  "<name> heating nozzle"                                       + heat to temp
 #   (at temp) say "<name> nozzle temperature reached, make sure bed is clear,
 #             then press the x stop button on the printer head bar to continue"
 #   [press] -> head to FAR-RIGHT, OFF the bed (bed BACK)
 #   say  "<name> cut filament at base, insert new filament then press x stop
-#         on printer head bar to purge"
-#   [press] -> extrude a 110 mm purge off the front edge of the bed (in safe chunks)
-#   say  "<name> purge complete, filament set. press x stop button on printer
-#         head bar to wipe"
-#   [press] -> wipe the extruded filament across the bed
+#         on printer head bar to purge and wipe"
+#   [press] -> 110 mm purge off the right edge, THEN wipe automatically (no extra press)
 #   say  "<name> filament change complete. cooling"   + heater off
 #   (when cool) say "<name> cooled temperature safe"
 
@@ -33,7 +31,7 @@ REQ_TEMP="${2:-0}"
 # On the Neptune 3 Pro, Y0 racks the bed back so the nozzle sits at the FRONT
 # edge (purge falls off the front). If on YOUR printer Y0 is the REAR, set
 # PARK_Y to your bed's MAX Y instead so the nozzle ends up at the front.
-PARK_X=234          # far RIGHT, OFF the bed (X travel max is 235 on this machine; verify yours)
+PARK_X=235          # hard against the X max (235) - fully off the right edge of the bed
 PARK_Y=0            # bed racked back -> nozzle over the FRONT edge (see note above)
 PURGE_Z=6           # nozzle height above the front edge while purging (mm)
 PURGE_TOTAL=110     # total mm of filament to purge
@@ -111,8 +109,8 @@ gc "G1 Z${PURGE_Z} F600" 30
 gc "G1 X${PARK_X} Y${PARK_Y} F6000" 40
 gc "M400" 60
 
-# ---- 5) prompt swap, wait, then purge 110 mm off the front edge in safe chunks
-say "$NAME cut filament at base, insert new filament then press x stop on printer head bar to purge"
+# ---- 5) prompt swap, wait for ONE press, then purge 110 mm AND wipe automatically
+say "$NAME cut filament at base, insert new filament then press x stop on printer head bar to purge and wipe"
 wait_press || { say "$NAME filament change timed out"; exit 1; }
 gc "M83" 5
 fed=0
@@ -123,9 +121,7 @@ while [ "$fed" -lt "$PURGE_TOTAL" ]; do
 done
 gc "M400" 120
 
-# ---- 6) purge done: wait, then wipe across the bed
-say "$NAME purge complete, filament set. press x stop button on printer head bar to wipe"
-wait_press || { say "$NAME filament change timed out"; exit 1; }
+# ---- 6) wipe automatically (no extra press), straight after the purge
 gc "G1 Z${WIPE_Z} F600" 20
 gc "G1 X${WIPE_X1} Y${WIPE_Y} F3000" 30
 gc "G1 X${WIPE_X2} F1500" 40           # drag to wipe the ooze onto the bed
