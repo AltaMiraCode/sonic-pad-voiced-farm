@@ -77,7 +77,12 @@ PHRASES=("preheating" "starting print" "print complete" "paused" "resuming" \
          "resuming. starting y axis resonance input shaping" \
          "y axis test complete" \
          "input shaping model created" "resonance input shaping complete" \
-         "input shaping failed" "input shaping timed out and was canceled")
+         "input shaping failed" "input shaping timed out and was canceled" \
+         "change filament process started, heating nozzle" \
+         "nozzle temperature reached, make sure bed is clear, then press the x stop button on the printer head bar to continue" \
+         "cut filament at base, insert new filament then press x stop on printer head bar to purge" \
+         "purge complete, filament set. press x stop button on printer head bar to wipe" \
+         "filament change complete" "filament change timed out")
 
 # content-only callouts: the KEY is name-prefixed so each plays in THIS printer's
 # voice, but the spoken audio is only the phrase itself (no name) - the frequency

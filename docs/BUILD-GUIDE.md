@@ -471,6 +471,7 @@ All appear as buttons in Fluidd and KlipperScreen.
 | `NOZZLE_PARK` | Lifts and parks the toolhead out of the way. |
 | `MOTORS_RELEASE` | Disables the steppers so you can move the axes by hand. |
 | `M600` | Filament change — pauses, parks, and unloads for a swap mid-print. |
+| `FILAMENT_CHANGE` | Guided **standalone** filament swap (heats from cold — *not* for mid-print; that's `M600`). Voice-prompted, driven by the X-stop button: press to begin → head parks front-left, bed back → cut & insert new filament, press → 120 mm purge off the bed → press → wipe. Positions are tunable at the top of `filament-change.sh` (§15). |
 | `PRINT_START` / `PRINT_END` | The slicer entry/exit points (temps, home, purge / cool-down, park, lights). |
 | `PAUSE` · `RESUME` · `CANCEL_PRINT` | The standard controls Fluidd calls — with a bounded Z-hop park; CANCEL also kills the fan and releases motors. |
 
@@ -711,6 +712,26 @@ done
 → Inserts `runout_gcode`/`insert_gcode` under each printer's existing `pause_on_runout`, then restarts the fleet. After this a runout auto-pauses, alarms, and walks you through the reload. The feed waits ~20 min for each press and bails gracefully if you resume manually from Fluidd. (The macros know which printer they're on from `machine.cfg`, so no per-printer name argument is needed.)
 
 > **✓ Expect:** the `for` loop is **silent** (the `grep -q … ||` guard only edits files that need it — re-running prints nothing because the lines are already present). `~/restart-all.sh` then prints a per-printer restart line and you'll **hear the roll-call** as the fleet comes back. Confirm it took with `grep -nE 'runout_gcode|insert_gcode' ~/printer_OMEGA_data/config/printer.cfg` — you should see the two new lines under `pause_on_runout`.
+
+### Guided filament change (deliberate swap)
+
+Different from a runout: **`FILAMENT_CHANGE`** is a **standalone**, voice-narrated swap for changing colour or material on purpose. It heats from cold, so it's for a deliberate swap — for a change *during* a print, use `M600`/`PAUSE` instead. It runs `filament-change.sh` and uses the same X-stop button on the print-head bar as the shaping and runout flows. From the Fluidd/KlipperScreen button (or `FILAMENT_CHANGE TEMP=240` to set the nozzle temp):
+
+1. It heats the nozzle, then says **"…nozzle temperature reached, make sure bed is clear, then press the X-stop button to continue."**
+2. **Press** → the head parks front-left and the bed racks back so the nozzle sits at the front edge; it says **"cut filament at base, insert new filament, then press X-stop to purge."**
+3. **Press** → a **120 mm purge off the front edge** of the bed (chunked into short moves to stay under Klipper's `max_extrude_only_distance`), then **"purge complete… press X-stop to wipe."**
+4. **Press** → it wipes the ooze across the bed and says **"filament change complete."**
+
+Deploy is just the script plus the macro block (both ship in the kit):
+
+**🖥️ Pad · SSH / bash**
+```bash
+cp ~/farm-kit/scripts/filament-change.sh ~ && chmod +x ~/filament-change.sh
+# the FILAMENT_CHANGE macro + its shell_command are already in the kit's macros.cfg
+```
+→ Installs the guided-swap script; the `FILAMENT_CHANGE` button appears after the macros.cfg deploy (§11) and a Klipper restart.
+
+> **⚠️ Tune the positions before the first run.** The park, purge-height, and wipe coordinates are plain variables at the top of `filament-change.sh`, defaulted for a 225×225 Neptune 3 Pro. Check the **Y convention first**: the default `PARK_Y=0` assumes Y0 racks the bed *back* so the nozzle sits at the front edge; if Y0 is the *rear* on your machine, set `PARK_Y` to your bed's max Y instead. Run it the first time watching closely, hand near the power.
 
 ---
 
