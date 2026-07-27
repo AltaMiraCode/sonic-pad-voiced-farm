@@ -5,10 +5,11 @@
 # same technique as runout-feed.sh). For a swap DURING a print, use M600/PAUSE.
 #
 # Flow (each [press] = tap the X-stop switch on the print-head bar):
+#   home if needed (COLD, before heating)
 #   say  "<name> change filament process started, heating nozzle"     + heat to temp
 #   (at temp) say "<name> nozzle temperature reached, make sure bed is clear,
 #             then press the x stop button on the printer head bar to continue"
-#   [press] -> home if needed; head to FRONT-RIGHT, bed BACK (nozzle at the front edge)
+#   [press] -> head to FAR-RIGHT, OFF the bed (bed BACK)
 #   say  "<name> cut filament at base, insert new filament then press x stop
 #         on printer head bar to purge"
 #   [press] -> extrude a 110 mm purge off the front edge of the bed (in safe chunks)
@@ -32,7 +33,7 @@ REQ_TEMP="${2:-0}"
 # On the Neptune 3 Pro, Y0 racks the bed back so the nozzle sits at the FRONT
 # edge (purge falls off the front). If on YOUR printer Y0 is the REAR, set
 # PARK_Y to your bed's MAX Y instead so the nozzle ends up at the front.
-PARK_X=210          # far RIGHT of the toolhead travel (front-right park)
+PARK_X=234          # far RIGHT, OFF the bed (X travel max is 235 on this machine; verify yours)
 PARK_Y=0            # bed racked back -> nozzle over the FRONT edge (see note above)
 PURGE_Z=6           # nozzle height above the front edge while purging (mm)
 PURGE_TOTAL=110     # total mm of filament to purge
@@ -40,7 +41,7 @@ PURGE_CHUNK=15      # mm per extrude move (MUST stay under Klipper max_extrude_o
 PURGE_FEED=300      # extrude speed, mm/min (5 mm/s)
 WIPE_Z=0.2          # skim height for the wipe (mm)
 WIPE_Y=4            # wipe just onto the front of the bed
-WIPE_X1=210         # wipe start X (at the purge point, right side)
+WIPE_X1=220         # wipe start X (just onto the plate's right edge)
 WIPE_X2=150         # wipe end X (drags the ooze inward across the bed)
 DEFAULT_TEMP=200    # nozzle temp if none passed and printer is cold (PLA)
 COOL_TEMP=40        # nozzle is "cooled / safe" at or below this (C)
@@ -85,6 +86,10 @@ wait_press() {   # 0=fresh press  1=timeout. Samples CONTINUOUSLY (~0.25s) so a 
     return 1
 }
 
+# ---- 0) home FIRST, while still cold (before any heating), if not already homed
+H=$(homed)
+if [[ "$H" != *x* || "$H" != *y* || "$H" != *z* ]]; then gc "G28" 180; fi
+
 # ---- 1) choose target temp: passed arg > current target (if already hot) > default
 CUR=$(q "extruder=target" | python3 -c "import sys,json;print(int(float(json.load(sys.stdin)['result']['status']['extruder']['target'])))" 2>/dev/null)
 TEMP="$REQ_TEMP"
@@ -101,9 +106,7 @@ gc "M109 S${TEMP}" 900          # wait for nozzle temperature
 say "$NAME nozzle temperature reached, make sure bed is clear, then press the x stop button on the printer head bar to continue"
 wait_press || { say "$NAME filament change timed out"; exit 1; }
 
-# ---- 4) home if needed, then head FRONT-RIGHT with the bed BACK
-H=$(homed)
-if [[ "$H" != *x* || "$H" != *y* || "$H" != *z* ]]; then gc "G28" 180; fi
+# ---- 4) move to the purge position: head FAR-RIGHT (off the bed), bed BACK (already homed in step 0)
 gc "M400" 30
 gc "G90" 5
 gc "G1 Z${PURGE_Z} F600" 30
