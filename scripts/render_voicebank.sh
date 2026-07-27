@@ -39,7 +39,7 @@ declare -A BODY_LEN=( [Trident]=1.1 )
 # ACTIVE CAST - add Tesseract / Pentagram / Sestina / Hydra here when their instances exist (their
 # voices and phrase sets render automatically on the next run; nothing else
 # in this script needs touching). See ADD-A-PRINTER.md.
-CAST="Omega Unicorn Dimeter Trident"
+CAST="${CAST:-Omega Unicorn Dimeter Trident}"   # override via env, e.g. CAST="... Tesseract Pentagram Sestina Hydra" to pre-render 5-8
 
 # per-printer phrases (rendered name-first, in every printer voice)
 PHRASES=("preheating" "starting print" "print complete" "paused" "resuming" \
