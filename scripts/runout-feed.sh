@@ -30,10 +30,10 @@ gc()  { curl -s -m"${2:-120}" -G -X POST "http://127.0.0.1:$P/printer/gcode/scri
 paused() { curl -s -m4 "http://127.0.0.1:$P/printer/objects/query?pause_resume=is_paused" \
     | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['status']['pause_resume']['is_paused'])" 2>/dev/null; }
 
-xstate() {   # echo TRIGGERED or open (freshest QUERY_ENDSTOPS result)
-    curl -s -m4 -X POST "http://127.0.0.1:$P/printer/gcode/script?script=QUERY_ENDSTOPS" >/dev/null 2>&1
-    sleep 0.4
-    curl -s -m4 "http://127.0.0.1:$P/server/gcode_store?count=12" | python3 -c "
+xstate() {   # echo TRIGGERED or open (freshest QUERY_ENDSTOPS result). Fast settle so a tap is caught.
+    curl -s -m3 -X POST "http://127.0.0.1:$P/printer/gcode/script?script=QUERY_ENDSTOPS" >/dev/null 2>&1
+    sleep 0.2
+    curl -s -m3 "http://127.0.0.1:$P/server/gcode_store?count=8" | python3 -c "
 import sys,json
 st='open'
 for m in json.load(sys.stdin)['result']['gcode_store']:
@@ -41,15 +41,20 @@ for m in json.load(sys.stdin)['result']['gcode_store']:
         st='TRIGGERED' if 'stepper_x:TRIGGERED' in m['message'] else 'open'
 print(st)" 2>/dev/null
 }
-wait_press() {   # wait for a FRESH press: released first (debounce), then triggered
-    local i
-    for i in $(seq 1 400); do [ "$(xstate)" = "open" ] && break; [ "$(paused)" = "False" ] && return 2; sleep 0.5; done
-    for i in $(seq 1 2400); do
-        [ "$(paused)" = "False" ] && return 2          # user resumed manually - bail
-        [ "$(xstate)" = "TRIGGERED" ] && return 0
-        sleep 0.5
+wait_press() {   # 0=press 2=resumed-manually 1=timeout. Samples CONTINUOUSLY (~0.25s) so a TAP registers.
+    local t0=$SECONDS
+    while [ "$(xstate)" != "open" ]; do                 # debounce (see 'open' first)
+        [ "$(paused)" = "False" ] && return 2
+        [ $((SECONDS - t0)) -ge 20 ] && break
+        sleep 0.05
     done
-    return 1                                            # ~20 min timeout
+    t0=$SECONDS
+    while [ $((SECONDS - t0)) -lt 1200 ]; do             # ~20 min timeout
+        [ "$(paused)" = "False" ] && return 2            # user resumed manually - bail
+        [ "$(xstate)" = "TRIGGERED" ] && return 0
+        sleep 0.05
+    done
+    return 1
 }
 
 # abort if no longer paused (user handled it manually)

@@ -8,14 +8,15 @@
 #   say  "<name> change filament process started, heating nozzle"     + heat to temp
 #   (at temp) say "<name> nozzle temperature reached, make sure bed is clear,
 #             then press the x stop button on the printer head bar to continue"
-#   [press] -> home if needed; head to FRONT-LEFT, bed BACK (nozzle at the front edge)
+#   [press] -> home if needed; head to FRONT-RIGHT, bed BACK (nozzle at the front edge)
 #   say  "<name> cut filament at base, insert new filament then press x stop
 #         on printer head bar to purge"
-#   [press] -> extrude a 120 mm purge off the front edge of the bed (in safe chunks)
+#   [press] -> extrude a 110 mm purge off the front edge of the bed (in safe chunks)
 #   say  "<name> purge complete, filament set. press x stop button on printer
 #         head bar to wipe"
 #   [press] -> wipe the extruded filament across the bed
-#   say  "<name> filament change complete"
+#   say  "<name> filament change complete. cooling"   + heater off
+#   (when cool) say "<name> cooled temperature safe"
 
 declare -A PORT=( [OMEGA]=7128 [UNICORN]=7125 [DIMETER]=7126 [TRIDENT]=7127 [TESSERACT]=7129 [PENTAGRAM]=7130 [SESTINA]=7131 [HYDRA]=7132 )
 NAME="$1"
@@ -31,18 +32,19 @@ REQ_TEMP="${2:-0}"
 # On the Neptune 3 Pro, Y0 racks the bed back so the nozzle sits at the FRONT
 # edge (purge falls off the front). If on YOUR printer Y0 is the REAR, set
 # PARK_Y to your bed's MAX Y instead so the nozzle ends up at the front.
-PARK_X=10           # far left of the toolhead travel
+PARK_X=210          # far RIGHT of the toolhead travel (front-right park)
 PARK_Y=0            # bed racked back -> nozzle over the FRONT edge (see note above)
 PURGE_Z=6           # nozzle height above the front edge while purging (mm)
-PURGE_TOTAL=120     # total mm of filament to purge
+PURGE_TOTAL=110     # total mm of filament to purge
 PURGE_CHUNK=15      # mm per extrude move (MUST stay under Klipper max_extrude_only_distance, default 50)
 PURGE_FEED=300      # extrude speed, mm/min (5 mm/s)
 WIPE_Z=0.2          # skim height for the wipe (mm)
 WIPE_Y=4            # wipe just onto the front of the bed
-WIPE_X1=10          # wipe start X
-WIPE_X2=80          # wipe end X (drags the ooze across the bed)
-DEFAULT_TEMP=220    # nozzle temp if none passed and printer is cold (PLA)
-PRESS_TIMEOUT=2400  # loops of 0.5s to wait for a press (~20 min)
+WIPE_X1=210         # wipe start X (at the purge point, right side)
+WIPE_X2=150         # wipe end X (drags the ooze inward across the bed)
+DEFAULT_TEMP=200    # nozzle temp if none passed and printer is cold (PLA)
+COOL_TEMP=40        # nozzle is "cooled / safe" at or below this (C)
+PRESS_TIMEOUT_S=150 # seconds to wait for a press before timing out (~2.5 min)
 # ====================================================================
 
 # re-exec detached so the Fluidd / KlipperScreen button returns instantly
@@ -59,10 +61,10 @@ homed() {   # echo the homed_axes string, e.g. "xyz"
     q "toolhead=homed_axes" | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['status']['toolhead']['homed_axes'])" 2>/dev/null
 }
 
-xstate() {   # echo TRIGGERED or open (freshest QUERY_ENDSTOPS result)
-    curl -s -m4 -X POST "http://127.0.0.1:$P/printer/gcode/script?script=QUERY_ENDSTOPS" >/dev/null 2>&1
-    sleep 0.4
-    curl -s -m4 "http://127.0.0.1:$P/server/gcode_store?count=12" | python3 -c "
+xstate() {   # echo TRIGGERED or open (freshest QUERY_ENDSTOPS result). Fast settle so a tap is caught.
+    curl -s -m3 -X POST "http://127.0.0.1:$P/printer/gcode/script?script=QUERY_ENDSTOPS" >/dev/null 2>&1
+    sleep 0.2
+    curl -s -m3 "http://127.0.0.1:$P/server/gcode_store?count=8" | python3 -c "
 import sys,json
 st='open'
 for m in json.load(sys.stdin)['result']['gcode_store']:
@@ -71,10 +73,15 @@ for m in json.load(sys.stdin)['result']['gcode_store']:
 print(st)" 2>/dev/null
 }
 
-wait_press() {   # wait for a FRESH press: released first (debounce), then triggered. 0=press 1=timeout
-    local i
-    for i in $(seq 1 400);            do [ "$(xstate)" = "open" ] && break; sleep 0.5; done
-    for i in $(seq 1 "$PRESS_TIMEOUT"); do [ "$(xstate)" = "TRIGGERED" ] && return 0; sleep 0.5; done
+wait_press() {   # 0=fresh press  1=timeout. Samples CONTINUOUSLY (~0.25s) so a brief TAP registers -
+                 # no more holding the switch. Debounce (see 'open' first), then wall-clock timeout.
+    local t0=$SECONDS
+    while [ "$(xstate)" != "open" ]; do [ $((SECONDS - t0)) -ge 20 ] && break; sleep 0.05; done
+    t0=$SECONDS
+    while [ $((SECONDS - t0)) -lt "$PRESS_TIMEOUT_S" ]; do
+        [ "$(xstate)" = "TRIGGERED" ] && return 0
+        sleep 0.05
+    done
     return 1
 }
 
@@ -94,7 +101,7 @@ gc "M109 S${TEMP}" 900          # wait for nozzle temperature
 say "$NAME nozzle temperature reached, make sure bed is clear, then press the x stop button on the printer head bar to continue"
 wait_press || { say "$NAME filament change timed out"; exit 1; }
 
-# ---- 4) home if needed, then head FRONT-LEFT with the bed BACK
+# ---- 4) home if needed, then head FRONT-RIGHT with the bed BACK
 H=$(homed)
 if [[ "$H" != *x* || "$H" != *y* || "$H" != *z* ]]; then gc "G28" 180; fi
 gc "M400" 30
@@ -103,7 +110,7 @@ gc "G1 Z${PURGE_Z} F600" 30
 gc "G1 X${PARK_X} Y${PARK_Y} F6000" 40
 gc "M400" 60
 
-# ---- 5) prompt swap, wait, then purge 120 mm off the front edge in safe chunks
+# ---- 5) prompt swap, wait, then purge 110 mm off the front edge in safe chunks
 say "$NAME cut filament at base, insert new filament then press x stop on printer head bar to purge"
 wait_press || { say "$NAME filament change timed out"; exit 1; }
 gc "M83" 5
@@ -124,6 +131,13 @@ gc "G1 X${WIPE_X2} F1500" 40           # drag to wipe the ooze onto the bed
 gc "G1 Z${PURGE_Z} F600" 20            # lift clear
 gc "M400" 60
 
-# ---- 7) done
-say "$NAME filament change complete"
+# ---- 7) announce complete, cut the heater, wait for cooldown, then confirm safe
+say "$NAME filament change complete. cooling"
+gc "M104 S0" 10                        # heater off
+for i in $(seq 1 180); do              # poll until cool (cap ~15 min)
+    ct=$(q "extruder=temperature" | python3 -c "import sys,json;print(int(float(json.load(sys.stdin)['result']['status']['extruder']['temperature'])))" 2>/dev/null)
+    [ "${ct:-999}" -le "$COOL_TEMP" ] && break
+    sleep 5
+done
+say "$NAME cooled temperature safe"
 exit 0
