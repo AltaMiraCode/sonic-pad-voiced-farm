@@ -73,9 +73,9 @@ HANDOFF="$NAME x axis test complete. move accelerometer to bed. then press x sto
 # X endstop microswitch on the head bar, polled as a hand-pressed "continue"
 # button (same trick as runout-feed.sh, polled every loop) - a brief press
 # resumes the Y phase without the tablet.
-xstop_triggered() {
-    curl -s -m3 -X POST "http://127.0.0.1:$P/printer/gcode/script?script=QUERY_ENDSTOPS" >/dev/null 2>&1
-    curl -s -m3 "http://127.0.0.1:$P/server/gcode_store?count=6" | grep -o 'stepper_x:TRIGGERED\|stepper_x:open' | tail -1 | grep -q TRIGGERED
+xstop_triggered() {   # ONE call to query_endstops/status (runs the query AND returns the state
+                      # in a single request) -> ~2x faster than POST+store, no store parse. Highest rate.
+    curl -s -m3 "http://127.0.0.1:$P/printer/query_endstops/status" | grep -q '"stepper_x":"TRIGGERED"'
 }
 
 # 1. restart to load the accelerometer config and grab the sensor
@@ -102,10 +102,10 @@ kill "$NARR" 2>/dev/null; wait "$NARR" 2>/dev/null
 rm -f "$HOME/.shaper_continue"
 mark "$HOME/.shaping"; mark "$HOME/.shaper_waiting"
 say "$HANDOFF"
-# Poll the X-stop CONTINUOUSLY (~0.6s cadence) so a brief press catches - the
-# old "check every 3rd second" gate meant a normal tap fell between samples and
-# you had to hold the switch ~4s. Timeout (15 min) and re-prompt (45s) are now
-# wall-clock, since we no longer sleep exactly 1s per loop.
+# Poll the X-stop CONTINUOUSLY so a brief press catches - the old "check every
+# 3rd second" gate meant a normal tap fell between samples and you had to hold the
+# switch ~4s. Timeout (15 min) and re-prompt (45s) are now wall-clock, since we no
+# longer sleep exactly 1s per loop.
 START=$(date +%s); LAST_PROMPT=$START; resumed=0
 while :; do
     NOW=$(date +%s)
@@ -118,7 +118,7 @@ while :; do
         say "$HANDOFF"
         LAST_PROMPT=$NOW
     fi
-    sleep 0.02
+    sleep 0.01
 done
 rm -f "$HOME/.shaper_waiting" "$HOME/.shaper_continue"
 if [ "$resumed" != "1" ]; then

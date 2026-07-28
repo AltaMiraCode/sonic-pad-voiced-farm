@@ -30,25 +30,25 @@ gc()  { curl -s -m"${2:-120}" -G -X POST "http://127.0.0.1:$P/printer/gcode/scri
 paused() { curl -s -m4 "http://127.0.0.1:$P/printer/objects/query?pause_resume=is_paused" \
     | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['status']['pause_resume']['is_paused'])" 2>/dev/null; }
 
-xstate() {   # echo TRIGGERED or open. No python spawn, no settle -> ~4-5x faster sampling, catches a TAP.
-    curl -s -m3 -X POST "http://127.0.0.1:$P/printer/gcode/script?script=QUERY_ENDSTOPS" >/dev/null 2>&1
-    case "$(curl -s -m3 "http://127.0.0.1:$P/server/gcode_store?count=6" | grep -o 'stepper_x:TRIGGERED\|stepper_x:open' | tail -1)" in
-        *TRIGGERED) echo TRIGGERED ;;
+xstate() {   # echo TRIGGERED or open. ONE call to query_endstops/status (runs the query AND
+             # returns the state in a single request) -> ~2x faster than POST+store, no store parse. Highest rate.
+    case "$(curl -s -m3 "http://127.0.0.1:$P/printer/query_endstops/status")" in
+        *'"stepper_x":"TRIGGERED"'*) echo TRIGGERED ;;
         *) echo open ;;
     esac
 }
-wait_press() {   # 0=press 2=resumed-manually 1=timeout. Samples CONTINUOUSLY (~0.08s) so a TAP registers.
+wait_press() {   # 0=press 2=resumed-manually 1=timeout. Samples CONTINUOUSLY so a TAP registers.
     local t0=$SECONDS
     while [ "$(xstate)" != "open" ]; do                 # debounce (see 'open' first)
         [ "$(paused)" = "False" ] && return 2
         [ $((SECONDS - t0)) -ge 20 ] && break
-        sleep 0.02
+        sleep 0.01
     done
     t0=$SECONDS
     while [ $((SECONDS - t0)) -lt 1200 ]; do             # ~20 min timeout
         [ "$(paused)" = "False" ] && return 2            # user resumed manually - bail
         [ "$(xstate)" = "TRIGGERED" ] && return 0
-        sleep 0.02
+        sleep 0.01
     done
     return 1
 }

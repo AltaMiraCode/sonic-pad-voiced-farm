@@ -79,9 +79,7 @@ PHRASES=("preheating" "starting print" "print complete" "paused" "resuming" \
          "input shaping model created" "resonance input shaping complete" \
          "input shaping failed" "input shaping timed out and was canceled" \
          "change filament process started" "heating nozzle" \
-         "nozzle temperature reached, make sure bed is clear, then press the x stop button on the printer head bar to continue" \
-         "cut filament at base, insert new filament then quick press x stop on printer head bar for same color. long hold for color change purge and wipe" \
-         "same color selected" "color change selected" \
+         "nozzle temperature reached" \
          "filament change complete. cooling" "filament change timed out")
 
 # content-only callouts: the KEY is name-prefixed so each plays in THIS printer's
@@ -90,7 +88,9 @@ PHRASES=("preheating" "starting print" "print complete" "paused" "resuming" \
 FREQ_PHRASES=("accelerometer claimed" "testing frequencies. 5 hertz" "25 hertz" \
               "50 hertz" "test halfway" "100 hertz" "125 hertz" \
               "calculating input shaping model. please wait" \
-              "please paper test this point" "saving configuration")
+              "please paper test this point" "saving configuration" \
+              "same color selected" "color change selected" \
+              "cut filament at base, insert new filament then quick press x stop on printer head bar for same color. long hold for color change purge and wipe")
 
 # system phrases (System voice, literal - no printer name)
 SYS_PHRASES=("low disk space" "update available" "wifi reconnected" "unknown printer connected")
@@ -101,9 +101,13 @@ SYS_PHRASES=("low disk space" "update available" "wifi reconnected" "unknown pri
 # phrase tweak instead of a full ~50-min re-render. Example:
 #   ONLY_PHRASES=$'change filament process started\nheating nozzle' \
 #     CAST="Omega Unicorn Dimeter Trident Tesseract Pentagram Sestina Hydra" ~/render_voicebank.sh
-if [ -n "$ONLY_PHRASES" ]; then
-    mapfile -t PHRASES <<< "$ONLY_PHRASES"
-    FREQ_PHRASES=(); SYS_PHRASES=(); SKIP_EXTRAS=1
+# ONLY_FREQ (newline-separated) does the same for CONTENT-ONLY clips: name-prefixed
+# key, audio is the phrase alone in each printer's own voice (e.g. the selection
+# callouts "same color selected"). Either/both may be set; unset lists render empty.
+if [ -n "$ONLY_PHRASES" ] || [ -n "$ONLY_FREQ" ]; then
+    if [ -n "$ONLY_PHRASES" ]; then mapfile -t PHRASES <<< "$ONLY_PHRASES"; else PHRASES=(); fi
+    if [ -n "$ONLY_FREQ" ];    then mapfile -t FREQ_PHRASES <<< "$ONLY_FREQ"; else FREQ_PHRASES=(); fi
+    SYS_PHRASES=(); SKIP_EXTRAS=1
 fi
 
 render_one() {  # $1=model-or-espeak-args  $2=out  $3=text  $4=is_espeak  $5=sargs

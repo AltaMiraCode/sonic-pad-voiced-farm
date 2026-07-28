@@ -443,7 +443,7 @@ All appear as buttons in Fluidd and KlipperScreen.
 | 2 | `TUNE_PID_BED` | Same for the heated bed. |
 | 3 | `TUNE_PROBE` | Calibrates the probe's Z-offset and saves it. |
 | 4 | `BED_SCREWS` | Screw-tilt: probes the corners and tells you, per screw, which way and how far to turn. On the Neptune 3 Pro's stiff metal-spacer bed you'll only get it *close* — match non-diagonal edge pairs and stop (see the aside below). |
-| 5 | `TUNE_TWIST` | Axis-twist compensation — measures gantry twist across X so the mesh isn't fooled by it, then saves. |
+| 5 | `TUNE_TWIST` | Axis-twist compensation — measures gantry twist across X so the mesh isn't fooled by it, then saves. It probes each point `samples` times (per your `[probe]` config, e.g. `samples: 3`) and averages — that setting only takes effect after a Klipper restart, so raise it *before* the run. |
 | 6 | `BED_LEVELING` | Homes and runs a fresh bed mesh (adaptive-aware), then saves — after screws and twist are right. |
 | 7 | `RUN_INPUT_SHAPER` | The one-button resonance run (X-stop handshake, section 15). Saves both axis shapers. |
 
@@ -471,9 +471,17 @@ All appear as buttons in Fluidd and KlipperScreen.
 | `NOZZLE_PARK` | Lifts and parks the toolhead out of the way. |
 | `MOTORS_RELEASE` | Disables the steppers so you can move the axes by hand. |
 | `M600` | Filament change — pauses, parks, and unloads for a swap mid-print. |
-| `FILAMENT_CHANGE` | Guided **standalone** filament swap (heats from cold — *not* for mid-print; that's `M600`). Voice-prompted, driven by the X-stop button: homes cold → heats → press to begin → head parks off the right edge of the bed → cut & insert new filament, press → 110 mm purge off the bed → press → wipe → heater off & cool down. Temp defaults to auto (keeps current if hot, else 200 °C); positions tunable at the top of `filament-change.sh` (§15). |
+| `FILAMENT_CHANGE` | Guided **standalone** filament swap (heats from cold — *not* for mid-print; that's `M600`). Voice-prompted, driven by the X-stop button: homes cold → heats → "nozzle temperature reached" and moves straight to park off the right edge → **quick-press** X-stop for a same-colour 20 mm top-up or **long-hold** for a 120 mm colour-change purge → auto-wipe → heater off & cool down. Runout sensor is muted during the swap. Temp defaults to auto (keeps current if hot, else 185 °C); positions tunable at the top of `filament-change.sh` (§15). |
 | `PRINT_START` / `PRINT_END` | The slicer entry/exit points (temps, home, purge / cool-down, park, lights). |
-| `PAUSE` · `RESUME` · `CANCEL_PRINT` | The standard controls Fluidd calls — with a bounded Z-hop park; CANCEL also kills the fan and releases motors. |
+| `PAUSE` · `RESUME` · `CANCEL_PRINT` | The standard controls Fluidd calls — with a bounded Z-hop park; CANCEL also kills the fan and releases motors. (CANCEL marks the print cancelled *before* the park hop, so cancelling on the first layer isn't misread by the narrator as a completed first layer.) |
+
+**Camera** (Fluidd's *Camera* macro group — see §14)
+
+| Macro | What it does |
+|---|---|
+| `SNAPSHOT` | Timestamped still from the farm cam → `~/snapshots/` (shutter chime). |
+| `RECORD` | Smart toggle: press to start recording → `~/recordings/*.mp4`, press again to stop & finalise. Plays the record start/stop sound (`cam_failure.wav` if no camera). Stream-copies the MJPEG feed, so it's light enough to run during a print. |
+| `TIMELAPSE` | Smart toggle: press to arm a per-layer print timelapse, press again to stop & render — or it auto-renders at print end → `~/timelapses/*.mp4`. Needs `TIMELAPSE_FRAME` in your slicer's on-layer-change G-code (it only captures while armed). |
 
 > **🔍 Aside — the fleet turns back on in order.** After a group restart, `~/restart-all.sh` brings the printers back and rolls the roll-call in **fleet order** (Omega, Unicorn, Dimeter, Trident, then 5–8) rather than reconnect order — so the "who's back" announcement is always predictable. It also skips any printer that's mid-print.
 
@@ -649,6 +657,21 @@ Optional, and the streaming backend is **already preinstalled**: the SonicPad-De
 > ```
 > → Installs the camera-event watcher the same way as the chime daemon (section 12). Skip this whole aside if you just want the video feed without audible camera cues.
 
+**Snapshot, Record & Timelapse buttons.** Three camera macros live in Fluidd's **Camera** macro group (identical on all four printers — the kit keeps every printer's Fluidd macro categories in sync):
+
+- **`SNAPSHOT`** — a timestamped still from the farm cam → `~/snapshots/`, with a shutter chime.
+- **`RECORD`** — one **smart toggle**: press to start recording the stream to `~/recordings/rec_*.mp4` (plays `cam_record.wav`), press again to stop and finalise the file (plays `cam_record_stop.wav`); `cam_failure.wav` if no camera is connected. It stream-copies the already-MJPEG feed (no re-encode with `ffmpeg`), so it's light enough to run even during a print.
+- **`TIMELAPSE`** — one **smart toggle** for a print timelapse: press to arm it (it captures a frame per layer from that moment on), press again to stop and render, or it finalises automatically at print end → `~/timelapses/timelapse_*.mp4`. Add **`TIMELAPSE_FRAME`** to your slicer's **on-layer-change** custom G-code so a frame is grabbed each layer (it only captures while the button is armed, so it's harmless when idle).
+
+Record and Timelapse need `ffmpeg` (already on the image) plus the two helper scripts, which ship in the kit's `macros.cfg`:
+
+**🖥️ Pad · SSH / bash**
+```bash
+cp ~/farm-kit/scripts/cam-record.sh ~/farm-kit/scripts/cam-timelapse.sh ~
+chmod +x ~/cam-record.sh ~/cam-timelapse.sh
+```
+→ The `RECORD` and `TIMELAPSE` buttons appear after the macros.cfg deploy (§11) and a Klipper restart.
+
 ---
 
 ## 15. Interactive tools — input shaping & guided filament reload
@@ -717,12 +740,13 @@ done
 
 Different from a runout: **`FILAMENT_CHANGE`** is a **standalone**, voice-narrated swap for changing colour or material on purpose. It heats from cold, so it's for a deliberate swap — for a change *during* a print, use `M600`/`PAUSE` instead. It runs `filament-change.sh` and uses the same X-stop button on the print-head bar as the shaping and runout flows. From the Fluidd/KlipperScreen button (or `FILAMENT_CHANGE TEMP=240` to set the nozzle temp):
 
-1. It announces **"…change filament process started,"** homes first if needed (while still cold), then announces **"…heating nozzle"** and brings the nozzle to temp (the passed `TEMP`, else the current target if already hot, else 200 °C), then says **"…nozzle temperature reached, make sure bed is clear, then press the X-stop button to continue."**
-2. **Press** → the head parks **off the right edge of the bed** (bed racked back); it says **"cut filament at base, insert new filament, then press X-stop to purge."**
-3. **Press** → a **110 mm purge off the right edge** of the bed (chunked into short moves to stay under Klipper's `max_extrude_only_distance`), then **"purge complete… press X-stop to wipe."**
-4. **Press** → it wipes the ooze across the bed, says **"filament change complete. cooling,"** turns the heater off, and when the nozzle drops below 40 °C plays the fleet's **"cooled temperature safe"** line.
+1. It announces **"…change filament process started,"** homes first if needed (while still cold), then announces **"…heating nozzle"** and brings the nozzle to temp (the passed `TEMP`, else the current target if already hot, else **185 °C**). At temp it says **"…nozzle temperature reached"** and moves **straight** to the purge position — no button press needed at this step.
+2. The head parks **fully off the right edge of the bed** (X238, out over the frame; bed racked back), then prompts in that printer's **own voice**: **"cut filament at base, insert new filament, then quick-press X-stop for same colour — long-hold for a colour change purge and wipe."** This is the one interactive press, and it's a **smart** press:
+   - **Quick tap** → **"same colour selected"** → a short **20 mm** feed (topping up the same colour), then it wipes automatically.
+   - **Long hold (≥0.8 s)** → **"colour change selected"** → a full **120 mm** purge off the right edge (chunked into short moves to stay under Klipper's `max_extrude_only_distance`), then it wipes automatically.
+3. It says **"filament change complete. cooling,"** turns the heater off, and when the nozzle drops below 40 °C plays the fleet's **"cooled temperature safe"** line.
 
-Each prompt waits ~2.5 min for a press, then times out cleanly. The X-stop is polled **continuously (~0.25 s)**, so a quick **tap** registers — no need to hold the switch (the runout and input-shaping flows use the same fast-poll).
+The runout sensor is **muted for the whole change** (pulling the old filament would otherwise trip the runout handler and hijack the swap) and re-armed automatically on exit. Each prompt waits ~2.5 min for a press, then times out cleanly. The X-stop is polled **continuously** via a single `query_endstops` call — the fastest sampling — so a quick **tap** registers without holding the switch (the runout and input-shaping flows use the same method).
 
 Deploy is just the script plus the macro block (both ship in the kit):
 
@@ -733,7 +757,7 @@ cp ~/farm-kit/scripts/filament-change.sh ~ && chmod +x ~/filament-change.sh
 ```
 → Installs the guided-swap script; the `FILAMENT_CHANGE` button appears after the macros.cfg deploy (§11) and a Klipper restart.
 
-> **⚠️ Tune the positions before the first run.** The park, purge-height, and wipe coordinates are plain variables at the top of `filament-change.sh`, defaulted for a 225×225 Neptune 3 Pro. Check the **Y convention first**: the default `PARK_Y=0` assumes Y0 racks the bed *back* so the nozzle sits at the front edge; if Y0 is the *rear* on your machine, set `PARK_Y` to your bed's max Y instead. Run it the first time watching closely, hand near the power.
+> **⚠️ Tune the positions before the first run.** The park, purge-height, wipe coordinates, temps, and purge amounts are plain variables at the top of `filament-change.sh`, defaulted for a 225×225 Neptune 3 Pro. Check the **Y convention first**: the default `PARK_Y=0` assumes Y0 racks the bed *back* so the nozzle sits at the front edge; if Y0 is the *rear* on your machine, set `PARK_Y` to your bed's max Y instead. Also note **`PARK_X=238`** parks the nozzle just past the bed's right edge, over the frame, so the purge drops onto the frame rather than the plate — that needs `stepper_x` `position_max` ≥ 238 (a stock Neptune 3 Pro ships at 235, so either raise `position_max` a couple mm in `printer.cfg` or lower `PARK_X` to 235). Run it the first time watching closely, hand near the power.
 
 ---
 
